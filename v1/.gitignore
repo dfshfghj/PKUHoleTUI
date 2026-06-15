@@ -1,9 +1,0 @@
-web
-build
-*.db
-config.json
-cookies.json
-*.log
-data/images/
-.out
-scripts/

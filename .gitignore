@@ -1,4 +1,9 @@
-**/__pycache__
+web
+build
+data/
+.out
+scripts/
+
 *.html
 *.json
 *.log
@@ -6,4 +11,5 @@
 **/temp
 **/data
 **/download
-data.db
+*.db
+.omx
