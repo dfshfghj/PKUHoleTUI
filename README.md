@@ -1,10 +1,10 @@
-# PKUHoleCrawler
+# PKUHoleTUI
 
-北京大学树洞爬虫与数据管理工具
+北京大学树洞命令行数据管理工具
 
 ## 功能概述
 
-- **爬虫采集**: 支持一次性抓取、无限循环、断点续爬、持续监控四种模式
+- **数据采集**: 支持一次性抓取、无限循环、断点续爬、持续监控四种模式
 - **TUI 交互界面**: 基于 Terminal UI 的可视化操作，支持帖子浏览、搜索、标签筛选、评论查看，以及在线模式下的点赞/关注/发帖/评论
 - **REST API 服务**: 提供标准化的数据查询接口（Gin 框架）
 - **图片下载**: 支持从帖子和评论中下载缺失图片
@@ -37,7 +37,6 @@
 │   ├── router.go        # Gin 路由注册
 │   ├── handles/         # API 处理器
 │   └── utils/           # 工具函数
-├── py_beta/             # Python 原型验证（仅供参考）
 ├── web/                 # 前端静态资源
 └── data/
     ├── config.json      # 账号与数据库配置文件（启动时自动创建）
@@ -47,14 +46,14 @@
 
 ## 安装与构建
 
-### 完整版本（包含 TUI + 爬虫 + API 服务器）
+### 完整版本（包含 TUI + 数据采集 + API 服务器）
 
 ```bash
 go mod tidy
 go build -tags withserver -o treehole ./cmd/
 ```
 
-### 精简版本（仅 TUI + 爬虫，不包含 API 服务器）
+### 精简版本（仅 TUI + 数据采集，不包含 API 服务器）
 
 ```bash
 go mod tidy
@@ -120,7 +119,7 @@ TREEHOLE_TUI_CAPTURE_DIR=./.treehole-tui ./treehole
 - `current-frame.txt`：去掉 ANSI 控制序列后的纯文本快照，便于脚本或调试读取。
 
 界面包含多个标签页（Tab 切换）：
-- **Home**: 爬虫启停控制、统计信息
+- **Home**: 采集启停控制、统计信息
 - **Posts**: 帖子列表浏览、搜索（`/`）、标签筛选（`t`）、分页、评论查看，以及在线模式下的交互动作
 - **Logs**: 运行日志（倒序，最新在前，`r` 刷新）
 - **Config**: 编辑账号配置
@@ -156,12 +155,11 @@ Posts 页 / 帖子详情页新增快捷键：
 | `c` | 发评论（帖子详情页，仅可写在线模式） |
 | `s` | 评论正序 / 逆序切换（帖子详情页） |
 
-说明：
-- 帖子列表标题会显示当前是 **[在线]** 还是 **[离线]**
+说明:
 - 帖子详情头部会显示当前帖子的 **赞数/关注数** 以及 **已点赞/未点赞、已关注/未关注**
 - 如果当前模式不可写，底部快捷键和状态栏会明确提示不可用
 
-### 爬虫模式 (`crawler` 子命令)
+### 数据采集模式 (`crawler` 子命令)
 
 ```bash
 # 一次性抓取：从第1页开始，抓100页，每页间隔1秒
@@ -173,7 +171,7 @@ Posts 页 / 帖子详情页新增快捷键：
 # 无限循环抓取：从第1页开始一直往后爬
 ./treehole crawler --page-interval 1
 
-# 断点续爬：根据数据库已有帖子数自动计算起始页
+# 断点续采：根据数据库已有帖子数自动计算起始页
 ./treehole crawler --resume --max-pages 50
 
 # 监控模式：循环抓取前10页，每页间隔2秒，每轮间隔60秒
@@ -189,7 +187,7 @@ Posts 页 / 帖子详情页新增快捷键：
 ./treehole crawler fetch-images
 ```
 
-爬虫参数：
+采集参数：
 
 | 参数 | 简写 | 说明 | 默认值 |
 |------|------|------|--------|
@@ -230,7 +228,7 @@ Posts 页 / 帖子详情页新增快捷键：
 
 ### 后台运行
 
-使用 `nohup` 在后台运行爬虫：
+使用 `nohup` 在后台运行采集：
 
 ```bash
 # 后台监控模式
@@ -239,7 +237,7 @@ nohup ./treehole crawler --loop-pages 10 --page-interval 2 --loop-interval 60 &
 # 后台无限抓取
 nohup ./treehole crawler --page-interval 1 &
 
-# 按 Ctrl+C 或 kill 发送 SIGINT/SIGTERM 可优雅退出
+# 按 Ctrl+C 或 kill 发送 SIGINT/SIGTERM 可退出
 ```
 
 ## 日志
@@ -253,7 +251,7 @@ nohup ./treehole crawler --page-interval 1 &
 ```
 
 日志标签：
-- `[Crawler]` — 爬虫抓取相关
+- `[Crawler]` — 数据采集相关
 - `[Auth]` — 登录认证相关
 - `[Posts]` — 帖子加载相关
 - `[Daemon]` — 后台模式相关
