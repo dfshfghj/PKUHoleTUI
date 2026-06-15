@@ -50,6 +50,18 @@ var (
 
 	footerStyle lipgloss.Style
 
+	statusModeStyle lipgloss.Style
+
+	statusPageStyle lipgloss.Style
+
+	statusInfoStyle lipgloss.Style
+
+	statusSessionOnlineStyle lipgloss.Style
+
+	statusSessionOfflineStyle lipgloss.Style
+
+	statusClockStyle lipgloss.Style
+
 	vTitleStyle lipgloss.Style
 
 	vSubtitleStyle lipgloss.Style
@@ -166,18 +178,18 @@ func applyTheme(mode string) {
 		Foreground(colorText)
 
 	tabBarStyle = lipgloss.NewStyle().
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(colorBorder).
-		BorderBottom(true).
-		Padding(0, 1)
+		Foreground(colorMuted).
+		Background(colorSurface)
 
 	tabItemStyle = lipgloss.NewStyle().
 		Padding(0, 2).
-		Foreground(colorMuted)
+		Foreground(colorTextSoft).
+		Background(colorSurface)
 
 	tabItemActiveStyle = lipgloss.NewStyle().
 		Padding(0, 2).
-		Foreground(colorAccent).
+		Foreground(colorAccentText).
+		Background(colorAccentStrong).
 		Bold(true)
 
 	contentStyle = lipgloss.NewStyle().
@@ -185,9 +197,41 @@ func applyTheme(mode string) {
 
 	footerStyle = lipgloss.NewStyle().
 		Foreground(colorMuted).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(colorBorder).
-		BorderTop(true).
+		Background(colorSurface)
+
+	statusModeStyle = lipgloss.NewStyle().
+		Foreground(colorAccentText).
+		Background(colorAccentStrong).
+		Bold(true).
+		Padding(0, 1)
+
+	statusPageStyle = lipgloss.NewStyle().
+		Foreground(colorText).
+		Background(colorAccentSoft).
+		Bold(true).
+		Padding(0, 1)
+
+	statusInfoStyle = lipgloss.NewStyle().
+		Foreground(colorText).
+		Background(colorSurface).
+		Padding(0, 1)
+
+	statusSessionOnlineStyle = lipgloss.NewStyle().
+		Foreground(colorAccentText).
+		Background(colorSuccess).
+		Bold(true).
+		Padding(0, 1)
+
+	statusSessionOfflineStyle = lipgloss.NewStyle().
+		Foreground(colorText).
+		Background(colorBorder).
+		Bold(true).
+		Padding(0, 1)
+
+	statusClockStyle = lipgloss.NewStyle().
+		Foreground(colorAccentText).
+		Background(colorAccent).
+		Bold(true).
 		Padding(0, 1)
 
 	vTitleStyle = lipgloss.NewStyle().
@@ -426,7 +470,7 @@ func paletteForTheme(mode string) themePalette {
 	if shouldUseDarkTheme(mode) {
 		return themePalette{
 			bg:           lipgloss.Color("#000000"),
-			surface:      lipgloss.Color("#000000"),
+			surface:      lipgloss.Color("#333333"),
 			border:       lipgloss.Color("#4A4A4A"),
 			muted:        lipgloss.Color("#888888"),
 			textSoft:     lipgloss.Color("#B0B0B0"),
@@ -436,16 +480,16 @@ func paletteForTheme(mode string) themePalette {
 			accentSoft:   lipgloss.Color("#2A1520"),
 			accentText:   lipgloss.Color("#000000"),
 			link:         lipgloss.Color("#fe9fcf"),
-			success:      lipgloss.Color("#90EE90"),
+			success:      lipgloss.Color("#d0ee90"),
 			warning:      lipgloss.Color("#FFA500"),
 		}
 	}
 
 	return themePalette{
 		bg:           lipgloss.Color("#FFF9F2"),
-		surface:      lipgloss.Color("#F2EAE3"),
+		surface:      lipgloss.Color("#e7e7e7"),
 		border:       lipgloss.Color("#C8B7AE"),
-		muted:        lipgloss.Color("#7F6A63"),
+		muted:        lipgloss.Color("#c79f92"),
 		textSoft:     lipgloss.Color("#5E4741"),
 		text:         lipgloss.Color("#241916"),
 		accent:       lipgloss.Color("#b8467d"),
@@ -453,7 +497,7 @@ func paletteForTheme(mode string) themePalette {
 		accentSoft:   lipgloss.Color("#F4DCE7"),
 		accentText:   lipgloss.Color("#FFF9F2"),
 		link:         lipgloss.Color("#92657b"),
-		success:      lipgloss.Color("#2F7D57"),
+		success:      lipgloss.Color("#adde58"),
 		warning:      lipgloss.Color("#A65A00"),
 	}
 }

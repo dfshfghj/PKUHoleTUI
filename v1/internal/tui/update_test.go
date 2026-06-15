@@ -1222,8 +1222,8 @@ func TestViewPostDetail(t *testing.T) {
 	if !containsStr(output, "正序") {
 		t.Error("View() should show comment sort status")
 	}
-	if !containsStr(output, "Esc") {
-		t.Error("View() should show Esc hint")
+	if !containsStr(output, "焦点: 评论") {
+		t.Error("View() should show detail status hint in statusline")
 	}
 }
 

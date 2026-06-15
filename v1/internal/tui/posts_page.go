@@ -214,16 +214,6 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 	prefixHeight := lipgloss.Height(b.String())
 	placements = append(placements, visiblePlacements(postPlacements, vp.YOffset, vp.Height, prefixHeight)...)
 	b.WriteString(vp.View())
-	b.WriteString("\n")
-	postAction := "n: 发帖"
-	if !p.CanWrite {
-		postAction = "n: 发帖(不可用)"
-	}
-	status := fmt.Sprintf("Enter: 查看 | t: 标签 | p/f: 点赞/关注 | %s | r: 刷新 | PgUp/PgDn: 快滚 | 已加载 %d", postAction, len(p.PostList))
-	if p.PostListLoading {
-		status += " | 正在加载更多..."
-	}
-	b.WriteString(vPaginationStyle.Render(status))
 	return b.String(), placements
 }
 
@@ -285,8 +275,6 @@ func (p PostsPageModel) renderPostDetail(width, height int) (string, []imagePlac
 		b.WriteString(commentsSectionStyle.Render(vp.View()))
 	}
 
-	b.WriteString("\n")
-	b.WriteString(p.renderDetailShortcut(width))
 	return b.String(), placements
 }
 
@@ -717,10 +705,12 @@ func (p *PostsPageModel) resetComments() {
 }
 
 func (p *PostsPageModel) calcPostViewportHeight(height int) int {
-	titleLines := 3
-	searchLines := 3
-	paginationLines := 2
-	avail := height - titleLines - searchLines - paginationLines
+	titleLines := 2
+	searchLines := 2
+	if p.StatusText != "" {
+		titleLines++
+	}
+	avail := height - titleLines - searchLines
 	if avail < 3 {
 		avail = 3
 	}
@@ -784,8 +774,7 @@ func (p PostsPageModel) detailFixedLineCount(width int) int {
 	}
 	return lipgloss.Height(p.renderDetailHeader(width)) +
 		p.detailDividerLineCount() +
-		lipgloss.Height(p.renderDetailCommentsTitle(width, titleStyle, p.detailCommentsTitle())) +
-		lipgloss.Height(p.renderDetailShortcut(width))
+		lipgloss.Height(p.renderDetailCommentsTitle(width, titleStyle, p.detailCommentsTitle()))
 }
 
 func (p PostsPageModel) detailDividerLineCount() int {
@@ -818,14 +807,6 @@ func (p PostsPageModel) detailCommentsTitle() string {
 		title += ", 加载中"
 	}
 	return title
-}
-
-func (p PostsPageModel) detailShortcutText() string {
-	shortcuts := []string{"Tab: 切换正文/评论", "s: 排序", "p/f/c/q: 点赞/关注/评/引", "Esc: 返回", "PgUp/PgDn"}
-	if !p.CanWrite {
-		shortcuts = []string{"Tab: 切换正文/评论", "s: 排序", "p/f/c/q: 不可用", "Esc: 返回", "PgUp/PgDn", "只读"}
-	}
-	return strings.Join(shortcuts, " | ")
 }
 
 func (p PostsPageModel) renderDetailHeader(width int) string {
@@ -868,15 +849,6 @@ func (p PostsPageModel) postFollowState() string {
 		return "已关注"
 	}
 	return "未关注"
-}
-
-func (p PostsPageModel) renderDetailShortcut(width int) string {
-	if width < 1 {
-		width = 1
-	}
-	return lipgloss.NewStyle().
-		Foreground(colorMuted).
-		Render(strings.Join(wrapVisibleLine(p.detailShortcutText(), width), "\n"))
 }
 
 func clampInt(value, minValue, maxValue int) int {

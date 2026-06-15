@@ -30,27 +30,18 @@ func (m Model) View() string {
 
 	// Tab bar - fixed top
 	tabs := []string{"同步", "帖子"}
-	var tabItems []string
+	var segments []powerlineSegment
 	for i, t := range tabs {
 		if i == m.TabCursor {
-			tabItems = append(tabItems, tabItemActiveStyle.Render(t))
+			segments = append(segments, powerlineSegment{Text: t, Style: tabItemActiveStyle})
 		} else {
-			tabItems = append(tabItems, tabItemStyle.Render(t))
+			segments = append(segments, powerlineSegment{Text: t, Style: tabItemStyle})
 		}
 	}
-	tabBarWidth := w - tabBarStyle.GetHorizontalFrameSize()
-	if tabBarWidth < 1 {
-		tabBarWidth = 1
-	}
-	tabBar := tabBarStyle.Width(tabBarWidth).Render(lipgloss.JoinHorizontal(lipgloss.Left, tabItems...))
+	tabBar := m.renderTabBar(w, m.renderPowerlineGroup(segments, powerlineRight))
 
 	// Footer - fixed bottom
-	footerText := fmt.Sprintf("TreeHole TUI v1.0 | h: 帮助 | %s", time.Now().In(shanghaiLocation).Format("15:04:05"))
-	footer := lipgloss.NewStyle().
-		Width(w).
-		Align(lipgloss.Right).
-		Foreground(colorMuted).
-		Render(truncateVisibleLine(footerText, w, "..."))
+	footer := m.renderStatusLine(w)
 
 	contentHeight := m.contentAreaHeightForSize(w, h)
 	content, placements := m.renderContent(contentHeight)
@@ -92,21 +83,312 @@ func (m Model) View() string {
 }
 
 func (m Model) contentAreaHeightForSize(width, height int) int {
-	tabBarWidth := width - tabBarStyle.GetHorizontalFrameSize()
-	if tabBarWidth < 1 {
-		tabBarWidth = 1
-	}
-	tabBar := tabBarStyle.Width(tabBarWidth).Render("")
-	footerText := fmt.Sprintf("TreeHole TUI v1.0 | h: 帮助 | %s", time.Now().In(shanghaiLocation).Format("15:04:05"))
-	footer := lipgloss.NewStyle().
-		Width(width).
-		Align(lipgloss.Right).
-		Render(truncateVisibleLine(footerText, width, "..."))
+	tabBar := m.renderTabBar(width, "")
+	footer := m.renderStatusLine(width)
 	contentHeight := height - lipgloss.Height(tabBar) - lipgloss.Height(footer)
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
 	return contentHeight
+}
+
+func (m Model) renderTabBar(width int, content string) string {
+	innerWidth := width
+	return tabBarStyle.Width(innerWidth).MaxWidth(innerWidth).Render(content)
+}
+
+func (m Model) renderStatusLine(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	innerWidth := width
+
+	left := m.renderPowerlineGroup([]powerlineSegment{
+		{Text: m.currentModeLabel(), Style: statusModeStyle},
+		{Text: m.currentPageLabel(), Style: statusPageStyle},
+	}, powerlineRight)
+	right := m.renderPowerlineGroup([]powerlineSegment{
+		{Text: m.renderSessionLabel(), Style: m.sessionBadgeStyle()},
+		{Text: time.Now().In(shanghaiLocation).Format("15:04:05"), Style: statusClockStyle},
+	}, powerlineLeft)
+
+	summary := m.currentStatusSummary()
+	line := joinStatusSections(innerWidth, left, summary, right)
+	return footerStyle.Width(innerWidth).MaxWidth(innerWidth).Render(line)
+}
+
+type powerlineSegment struct {
+	Text  string
+	Style lipgloss.Style
+}
+
+type powerlineDirection int
+
+const (
+	powerlineRight powerlineDirection = iota
+	powerlineLeft
+)
+
+func (m Model) renderPowerlineGroup(segments []powerlineSegment, direction powerlineDirection) string {
+	if len(segments) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	background := footerStyle.GetBackground()
+	if background == nil {
+		background = colorBg
+	}
+
+	if direction == powerlineRight {
+		for i, seg := range segments {
+			b.WriteString(seg.Style.Render(seg.Text))
+			if i == len(segments)-1 {
+				continue
+			}
+			next := segments[i+1]
+			b.WriteString(powerlineSeparatorRight(seg.Style.GetBackground(), next.Style.GetBackground()))
+		}
+		last := segments[len(segments)-1]
+		b.WriteString(powerlineSeparatorRight(last.Style.GetBackground(), background))
+		return b.String()
+	}
+
+	b.WriteString(powerlineSeparatorLeft(background, segments[0].Style.GetBackground()))
+	for i, seg := range segments {
+		b.WriteString(seg.Style.Render(seg.Text))
+		if i == len(segments)-1 {
+			continue
+		}
+		next := segments[i+1]
+		b.WriteString(powerlineSeparatorLeft(seg.Style.GetBackground(), next.Style.GetBackground()))
+	}
+	return b.String()
+}
+
+func powerlineSeparatorRight(left, right lipgloss.TerminalColor) string {
+	return lipgloss.NewStyle().
+		Foreground(left).
+		Background(right).
+		Render("")
+}
+
+func powerlineSeparatorLeft(left, right lipgloss.TerminalColor) string {
+	return lipgloss.NewStyle().
+		Foreground(right).
+		Background(left).
+		Render("")
+}
+
+func joinStatusSections(width int, left, middle, right string) string {
+	if width < 1 {
+		return ""
+	}
+
+	fillStyle := lipgloss.NewStyle().Background(colorSurface)
+
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
+	if leftWidth+rightWidth+1 >= width {
+		return truncateVisibleLine(left+" "+right, width, "...")
+	}
+
+	availableMiddle := width - leftWidth - rightWidth - 2
+	if availableMiddle < 0 {
+		availableMiddle = 0
+	}
+	if availableMiddle == 0 {
+		return left + fillStyle.Render(strings.Repeat(" ", maxInt(0, width-leftWidth-rightWidth))) + right
+	}
+
+	middleInnerWidth := maxInt(0, availableMiddle-statusInfoStyle.GetHorizontalFrameSize())
+	middle = truncateVisibleLine(middle, middleInnerWidth, "...")
+	middleWidth := lipgloss.Width(middle)
+	if middleWidth < middleInnerWidth {
+		middle += fillStyle.Render(strings.Repeat(" ", middleInnerWidth-middleWidth))
+	}
+	middle = statusInfoStyle.Render(middle)
+	core := left + fillStyle.Render(" ") + middle
+	padding := width - lipgloss.Width(core) - rightWidth
+	if padding < 1 {
+		padding = 1
+	}
+	return core + fillStyle.Render(strings.Repeat(" ", padding)) + right
+}
+
+func (m Model) currentModeLabel() string {
+	switch m.Dialog {
+	case DialogConfig:
+		return "CONFIG"
+	case DialogLogs:
+		return "LOGS"
+	case DialogHelp:
+		return "HELP"
+	case DialogSessionPrompt:
+		return "LOGIN"
+	case DialogAuthChallenge:
+		return "AUTH"
+	case DialogComposer:
+		return "COMPOSE"
+	case DialogTags:
+		return "TAGS"
+	}
+
+	if m.Page == PageHome {
+		if m.Home.CrawlerState == CrawlerRunning {
+			return "SYNC"
+		}
+		return "HOME"
+	}
+
+	if m.Posts.Searching {
+		return "SEARCH"
+	}
+	if m.Posts.ShowPostDetail {
+		if m.Posts.DetailFocus == DetailFocusPost {
+			return "DETAIL-POST"
+		}
+		return "DETAIL-CMT"
+	}
+	if m.Posts.SearchActive {
+		return "RESULTS"
+	}
+	return "NORMAL"
+}
+
+func (m Model) currentPageLabel() string {
+	switch m.Page {
+	case PageHome:
+		if m.Home.CrawlMode == CrawlMonitor {
+			return fmt.Sprintf("同步 监控前%d页", m.Home.MonitorPages)
+		}
+		return "同步 顺序抓取"
+	case PagePosts:
+		if m.Posts.ShowPostDetail && m.Posts.CurrentPost != nil {
+			return fmt.Sprintf("帖子 #%d", m.Posts.CurrentPost.Pid)
+		}
+		if m.Posts.SearchActive {
+			query := strings.TrimSpace(m.Posts.SearchInput)
+			if query == "" {
+				return "帖子 搜索结果"
+			}
+			return fmt.Sprintf("搜索 %s", query)
+		}
+		return "帖子 列表"
+	default:
+		return "TreeHole TUI"
+	}
+}
+
+func (m Model) currentStatusSummary() string {
+	if m.LastError != "" {
+		return "错误: " + m.LastError
+	}
+	if m.Posts.StatusText != "" {
+		return m.Posts.StatusText
+	}
+	if m.Dialog != DialogNone {
+		return m.dialogStatusSummary()
+	}
+	if m.Page == PageHome {
+		return m.homeStatusSummary()
+	}
+	return m.postsStatusSummary()
+}
+
+func (m Model) dialogStatusSummary() string {
+	switch m.Dialog {
+	case DialogConfig:
+		return "c: 配置编辑 | Enter: 保存 | Esc: 关闭"
+	case DialogLogs:
+		return "l: 运行日志 | Esc: 关闭"
+	case DialogHelp:
+		return "h: 快捷键帮助 | Esc: 关闭"
+	case DialogSessionPrompt:
+		return "登录态不可用，按 Enter 选择恢复方式"
+	case DialogAuthChallenge:
+		return "需要补充登录验证信息"
+	case DialogComposer:
+		return "Ctrl+S: 提交 | Esc: 取消"
+	case DialogTags:
+		return "Enter: 选择标签 | c: 清除筛选 | Esc: 关闭"
+	default:
+		return "h: 帮助 | Ctrl+Q: 退出"
+	}
+}
+
+func (m Model) homeStatusSummary() string {
+	switch m.Home.CrawlerState {
+	case CrawlerRunning:
+		elapsed := "0s"
+		if !m.Home.CrawlerStart.IsZero() {
+			elapsed = time.Since(m.Home.CrawlerStart).Round(time.Second).String()
+		}
+		progress := "等待首轮抓取"
+		if m.Home.LastCrawlPage > 0 {
+			progress = fmt.Sprintf("已抓到第%d页", m.Home.LastCrawlPage)
+		}
+		return fmt.Sprintf("%s | 已运行 %s | Enter: 启停 | m: 切换模式", progress, elapsed)
+	case CrawlerError:
+		if m.Home.HomeLastError != "" {
+			return "爬虫错误: " + m.Home.HomeLastError
+		}
+		return "爬虫错误，按 Enter 或 m 调整后重试"
+	default:
+		return "爬虫已停止 | Enter: 启动/停止 | m: 切换模式"
+	}
+}
+
+func (m Model) postsStatusSummary() string {
+	if m.Posts.Searching {
+		return "输入关键字后按 Enter 搜索，Esc 取消"
+	}
+	if m.Posts.ShowPostDetail && m.Posts.CurrentPost != nil {
+		comments := fmt.Sprintf("评论 %d", len(m.Posts.CommentList))
+		if m.Posts.CommentListLoading {
+			comments += " | 加载评论中..."
+		} else if m.Posts.CommentListHasMore {
+			comments += " | 可继续下翻加载更多"
+		}
+		focus := "焦点: 评论"
+		if m.Posts.DetailFocus == DetailFocusPost {
+			focus = "焦点: 正文"
+		}
+		return fmt.Sprintf("%s | %s | Tab: 切换正文/评论 | q: 引用评论", comments, focus)
+	}
+
+	scope := fmt.Sprintf("%d", len(m.Posts.PostList))
+	if m.Posts.SearchActive {
+		scope = fmt.Sprintf("%d", len(m.Posts.PostList))
+	}
+	if m.Posts.ActiveTag != "" {
+		scope += " | 标签 #" + m.Posts.ActiveTag
+	}
+	if m.Posts.PostListLoading {
+		if len(m.Posts.PostList) == 0 {
+			scope += " | 加载帖子中..."
+		} else {
+			scope += " | 正在加载更多..."
+		}
+	}
+	return scope + " | /: 搜索 | Enter: 详情 | r: 刷新 | h: 帮助"
+}
+
+func (m Model) renderSessionLabel() string {
+	if m.Session.Mode == SessionModeOnline {
+		if m.Session.CanWriteOnline {
+			return "ONLINE WRITE"
+		}
+		return "ONLINE READ"
+	}
+	return "OFFLINE"
+}
+
+func (m Model) sessionBadgeStyle() lipgloss.Style {
+	if m.Session.Mode == SessionModeOnline {
+		return statusSessionOnlineStyle
+	}
+	return statusSessionOfflineStyle
 }
 
 func (m Model) renderContent(contentHeight int) (string, []imagePlacement) {

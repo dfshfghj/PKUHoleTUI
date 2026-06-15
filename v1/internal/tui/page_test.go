@@ -969,12 +969,15 @@ func TestViewPostsStrippedLines(t *testing.T) {
 		t.Fatal("No visible lines after stripping ANSI codes")
 	}
 
-	// First line is tab bar, title is at line[2]
-	if len(lines) < 3 {
-		t.Fatalf("Expected at least 3 visible lines, got %d", len(lines))
+	foundTitle := false
+	for _, line := range lines {
+		if strings.Contains(line, "帖子列表") {
+			foundTitle = true
+			break
+		}
 	}
-	if !strings.Contains(lines[2], "帖子列表") {
-		t.Errorf("Line[2] = %q, want '帖子列表'", lines[2])
+	if !foundTitle {
+		t.Error("No posts title found in visible lines")
 	}
 
 	// Should contain search hint
@@ -1116,21 +1119,92 @@ func TestViewDetailUsesAvailableHeight(t *testing.T) {
 	m.Height = 24
 
 	lines := frameLines(m.View())
-	shortcutLine := -1
 	footerLine := -1
 	for i, line := range lines {
-		if strings.Contains(line, "Tab: 切换正文/评论") {
-			shortcutLine = i
-		}
-		if strings.Contains(line, "TreeHole TUI v1.0") {
+		if strings.Contains(line, "OFFLINE") || strings.Contains(line, "ONLINE") {
 			footerLine = i
 		}
 	}
-	if shortcutLine == -1 || footerLine == -1 {
-		t.Fatalf("missing shortcut or footer line in detail view")
+	if footerLine == -1 {
+		t.Fatalf("missing footer line in detail view")
 	}
-	if footerLine-shortcutLine > 1 {
-		t.Fatalf("detail view leaves too much blank space before footer: shortcut=%d footer=%d", shortcutLine, footerLine)
+	lastContentLine := -1
+	for i, line := range lines[:footerLine] {
+		if strings.TrimSpace(line) != "" {
+			lastContentLine = i
+		}
+	}
+	if lastContentLine == -1 {
+		t.Fatalf("detail view should render content before footer")
+	}
+	if footerLine-lastContentLine > 1 {
+		t.Fatalf("detail view leaves too much blank space before footer: content=%d footer=%d", lastContentLine, footerLine)
+	}
+}
+
+func TestViewStatusLineShowsNormalPostsMode(t *testing.T) {
+	m := newTestModel()
+	m.Page = PagePosts
+	m.Posts.PostList = []models.Post{{Pid: 1, Text: "hello", Timestamp: 1000}}
+	m.Posts.SelectedPostIdx = 0
+
+	output := stripANSI(m.View())
+	expected := []string{"NORMAL", "帖子 列表", "1 | /: 搜索", "OFFLINE"}
+	for _, want := range expected {
+		if !strings.Contains(output, want) {
+			t.Fatalf("status line missing %q in output:\n%s", want, output)
+		}
+	}
+}
+
+func TestViewStatusLineShowsLoadingProgress(t *testing.T) {
+	m := newTestModel()
+	m.Page = PagePosts
+	m.Posts.PostListLoading = true
+
+	output := stripANSI(m.View())
+	expected := []string{"NORMAL", "帖子 列表", "加载帖子中", "OFFLINE"}
+	for _, want := range expected {
+		if !strings.Contains(output, want) {
+			t.Fatalf("status line missing %q in loading output:\n%s", want, output)
+		}
+	}
+}
+
+func TestViewStatusLineShowsDetailMode(t *testing.T) {
+	m := newTestModel()
+	m.Page = PagePosts
+	m.Posts.ShowPostDetail = true
+	m.Posts.CurrentPost = &models.Post{Pid: 42, Text: "detail", Timestamp: 1000}
+	m.Posts.CommentList = []models.Comment{{Cid: 1, Text: "comment", Timestamp: 1001}}
+
+	output := stripANSI(m.View())
+	expected := []string{"DETAIL-CMT", "帖子 #42", "评论 1", "焦点: 评论"}
+	for _, want := range expected {
+		if !strings.Contains(output, want) {
+			t.Fatalf("detail status line missing %q in output:\n%s", want, output)
+		}
+	}
+}
+
+func TestViewStatusLineKeepsClockOnSameLine(t *testing.T) {
+	m := newTestModel()
+	m.Page = PagePosts
+	m.Posts.PostList = []models.Post{{Pid: 1, Text: "hello", Timestamp: 1000}}
+
+	lines := frameLines(m.View())
+	var footer string
+	for _, line := range lines {
+		if strings.Contains(line, "OFFLINE") || strings.Contains(line, "ONLINE") {
+			footer = line
+			break
+		}
+	}
+	if footer == "" {
+		t.Fatalf("missing footer line in output:\n%s", stripANSI(m.View()))
+	}
+	if !regexp.MustCompile(`\d{2}:\d{2}:\d{2}`).MatchString(footer) {
+		t.Fatalf("expected clock on footer line, got: %q", footer)
 	}
 }
 
@@ -1289,7 +1363,7 @@ func TestViewPostDetailStrippedLines(t *testing.T) {
 	lines := visibleLines(output)
 
 	allText := strings.Join(lines, " ")
-	expectedContent := []string{"#42", "Detail post text", "First comment", "Second comment", "user1: quoted text", "正序", "Esc", "p/f/c"}
+	expectedContent := []string{"#42", "Detail post text", "First comment", "Second comment", "user1: quoted text", "正序", "评论 2", "焦点: 评论"}
 	for _, want := range expectedContent {
 		if !strings.Contains(allText, want) {
 			t.Errorf("Missing expected content: %q", want)
@@ -1559,9 +1633,15 @@ func TestViewPostsStrippedLinesWithRealData(t *testing.T) {
 		t.Errorf("Expected at least 3 visible lines, got %d", len(lines))
 	}
 
-	// Line[0] is tab bar, line[1] is separator, line[2] should be title
-	if !strings.Contains(lines[2], "帖子列表") {
-		t.Errorf("Line[2] = %q, want '帖子列表'", lines[2])
+	foundTitle := false
+	for _, line := range lines {
+		if strings.Contains(line, "帖子列表") {
+			foundTitle = true
+			break
+		}
+	}
+	if !foundTitle {
+		t.Error("No posts title found in visible lines")
 	}
 
 	// Should contain post text
@@ -1582,16 +1662,16 @@ func TestViewPostsStrippedLinesWithRealData(t *testing.T) {
 		}
 	}
 
-	// Should contain pagination hint
-	foundPagination := false
+	// Should contain statusline count hint
+	foundCountHint := false
 	for _, line := range lines {
-		if strings.Contains(line, "已加载") {
-			foundPagination = true
+		if strings.Contains(line, " | /: 搜索") {
+			foundCountHint = true
 			break
 		}
 	}
-	if !foundPagination {
-		t.Error("Pagination hint '已加载' not found")
+	if !foundCountHint {
+		t.Error("Statusline count hint not found")
 	}
 
 	t.Logf("Real data posts view: %d visible lines", len(lines))
