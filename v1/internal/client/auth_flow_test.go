@@ -1,12 +1,15 @@
 package client
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"testing"
+
+	"treehole/internal/config"
 )
 
 func TestDetectAuthChallenge(t *testing.T) {
@@ -45,8 +48,8 @@ func TestParseAuthAPIResponse(t *testing.T) {
 }
 
 type authRoundTripper struct {
-	sendCalls   int
-	tokenCalls  int
+	sendCalls    int
+	tokenCalls   int
 	messageCalls int
 }
 
@@ -66,6 +69,45 @@ func (rt *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Request:    req,
 	}, nil
+}
+
+type bootstrapPasswordRoundTripper struct{}
+
+func (rt *bootstrapPasswordRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	switch {
+	case strings.Contains(req.URL.String(), string(UN_READ)):
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"success":false,"message":"登录态不可用"}`)),
+			Request:    req,
+		}, nil
+	case strings.Contains(req.URL.String(), string(OAUTH_LOGIN)):
+		payload, err := json.Marshal(map[string]interface{}{"success": true})
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(string(payload))),
+			Request:    req,
+		}, nil
+	default:
+		return nil, io.EOF
+	}
+}
+
+func newBootstrapTestClient(t *testing.T) *Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New: %v", err)
+	}
+	return &Client{
+		httpClient: &http.Client{Jar: jar, Transport: &bootstrapPasswordRoundTripper{}},
+		deviceUUID: "test-uuid",
+	}
 }
 
 func TestAuthSubmitHelpers(t *testing.T) {
@@ -91,5 +133,80 @@ func TestAuthSubmitHelpers(t *testing.T) {
 	}
 	if rt.sendCalls != 1 || rt.tokenCalls != 1 || rt.messageCalls != 1 {
 		t.Fatalf("unexpected auth helper call counts: %+v", rt)
+	}
+}
+
+func TestBootstrapSessionWithPasswordRequestsPasswordChallengeWhenOAuthReturnsNoToken(t *testing.T) {
+	c := newBootstrapTestClient(t)
+
+	result := c.BootstrapSessionWithPassword(&config.Config{Username: "testuser"}, "secret")
+
+	if result.Challenge != AuthChallengePassword {
+		t.Fatalf("challenge = %q, want %q", result.Challenge, AuthChallengePassword)
+	}
+	if result.Status.FailureKind != SessionFailureLogin {
+		t.Fatalf("failure kind = %q, want %q", result.Status.FailureKind, SessionFailureLogin)
+	}
+	if !strings.Contains(result.Status.Message, "OAuth 登录未返回 token") {
+		t.Fatalf("message = %q, want oauth token error", result.Status.Message)
+	}
+}
+
+func TestBootstrapSessionWithPasswordRequestsUsernameChallengeWhenUsernameMissing(t *testing.T) {
+	c := newBootstrapTestClient(t)
+
+	result := c.BootstrapSessionWithPassword(&config.Config{}, "secret")
+
+	if result.Challenge != AuthChallengeUsername {
+		t.Fatalf("challenge = %q, want %q", result.Challenge, AuthChallengeUsername)
+	}
+	if !strings.Contains(result.Status.Message, "未配置用户名") {
+		t.Fatalf("message = %q, want missing username", result.Status.Message)
+	}
+}
+
+func TestBootstrapSessionWithPasswordRequestsPasswordChallengeWhenPasswordMissing(t *testing.T) {
+	c := newBootstrapTestClient(t)
+
+	result := c.BootstrapSessionWithPassword(&config.Config{Username: "testuser"}, "")
+
+	if result.Challenge != AuthChallengePassword {
+		t.Fatalf("challenge = %q, want %q", result.Challenge, AuthChallengePassword)
+	}
+	if !strings.Contains(result.Status.Message, "未配置密码") {
+		t.Fatalf("message = %q, want missing password", result.Status.Message)
+	}
+}
+
+func TestBootstrapSessionRequestsUsernameChallengeWhenOnlyPasswordConfigured(t *testing.T) {
+	c := newBootstrapTestClient(t)
+
+	result := c.BootstrapSession(&config.Config{Password: "secret"})
+
+	if result.Challenge != AuthChallengeUsername {
+		t.Fatalf("challenge = %q, want %q", result.Challenge, AuthChallengeUsername)
+	}
+}
+
+func TestBootstrapSessionRequestsPasswordChallengeWhenOnlyUsernameConfigured(t *testing.T) {
+	c := newBootstrapTestClient(t)
+
+	result := c.BootstrapSession(&config.Config{Username: "testuser"})
+
+	if result.Challenge != AuthChallengePassword {
+		t.Fatalf("challenge = %q, want %q", result.Challenge, AuthChallengePassword)
+	}
+}
+
+func TestBootstrapSessionSkipsProbeWhenCredentialsArePartial(t *testing.T) {
+	c := newBootstrapTestClient(t)
+
+	result := c.BootstrapSession(&config.Config{Password: "secret"})
+
+	if result.Challenge != AuthChallengeUsername {
+		t.Fatalf("challenge = %q, want %q", result.Challenge, AuthChallengeUsername)
+	}
+	if result.Status.Message != "未配置用户名，请输入账号后重试" {
+		t.Fatalf("message = %q", result.Status.Message)
 	}
 }

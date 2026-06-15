@@ -52,8 +52,10 @@ func setupTestRouter(t *testing.T, database *db.Database) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/health", Health)
+	r.GET("/help", Help)
 	r.GET("/posts", GetPosts(database))
 	r.GET("/post/:pid", GetPost(database))
+	r.GET("/comment", GetComment(database))
 	r.GET("/comments/:pid", GetComments(database))
 	r.GET("/media/image", GetImage)
 	return r
@@ -96,6 +98,40 @@ func TestHealth(t *testing.T) {
 	}
 	if data["message"] != "PKU Hole API is running" {
 		t.Errorf("body.data.message = %v, want 'PKU Hole API is running'", data["message"])
+	}
+}
+
+func TestHelp(t *testing.T) {
+	r := gin.New()
+	r.GET("/help", Help)
+
+	req := httptest.NewRequest("GET", "/help", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Status = %d, want 200", w.Code)
+	}
+
+	var body map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &body)
+	data := body["data"].([]interface{})
+	if len(data) < 6 {
+		t.Fatalf("help entries = %d, want at least 6", len(data))
+	}
+
+	foundComment := false
+	for _, item := range data {
+		entry := item.(map[string]interface{})
+		if entry["route"] == "/comment?cid=123" {
+			foundComment = true
+			if entry["description"] == "" {
+				t.Fatal("comment route description should not be empty")
+			}
+		}
+	}
+	if !foundComment {
+		t.Fatal("help output missing /comment route")
 	}
 }
 
@@ -411,6 +447,74 @@ func TestGetComments(t *testing.T) {
 	first := data[0].(map[string]interface{})
 	if first["text"] != "Comment 1" {
 		t.Errorf("First comment text = %v, want 'Comment 1'", first["text"])
+	}
+}
+
+func TestGetCommentByCid(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	r := setupTestRouter(t, database)
+
+	seedTestPosts(t, database, []models.Post{
+		{Pid: 1, Text: "Post", Type: "text", Timestamp: 1000},
+	})
+
+	quoteID := int32(1)
+	seedTestComments(t, database, []models.Comment{
+		{Cid: 1, Pid: 1, Text: "Quoted", Timestamp: 1100, NameTag: "user1"},
+		{Cid: 2, Pid: 1, Text: "Reply", Timestamp: 1200, NameTag: "user2", QuoteID: &quoteID, MediaIds: "2"},
+	})
+
+	req := httptest.NewRequest("GET", "/comment?cid=2", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Status = %d, want 200", w.Code)
+	}
+
+	var body map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &body)
+	data := body["data"].(map[string]interface{})
+	if data["cid"] != float64(2) {
+		t.Fatalf("cid = %v, want 2", data["cid"])
+	}
+	if data["text"] != "Reply" {
+		t.Fatalf("text = %v, want Reply", data["text"])
+	}
+	if data["media_ids"] != "2" {
+		t.Fatalf("media_ids = %v, want 2", data["media_ids"])
+	}
+	if data["quote"] == nil {
+		t.Fatal("quote should be preloaded")
+	}
+}
+
+func TestGetCommentInvalidCid(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	r := setupTestRouter(t, database)
+
+	req := httptest.NewRequest("GET", "/comment?cid=abc", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Status = %d, want 400", w.Code)
+	}
+}
+
+func TestGetCommentNotFound(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	r := setupTestRouter(t, database)
+
+	req := httptest.NewRequest("GET", "/comment?cid=9999", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("Status = %d, want 404", w.Code)
 	}
 }
 

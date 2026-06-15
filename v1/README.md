@@ -19,7 +19,8 @@
 │   ├── main.go          # 程序入口
 │   ├── root.go          # 根命令 & TUI / Daemon 逻辑
 │   ├── crawler.go       # 爬虫子命令 & 图片下载子命令
-│   └── server.go        # API 服务器子命令
+│   ├── server.go        # API 服务器子命令 (build tag: withserver)
+│   └── server_stub.go   # server 空壳 (build tag: !withserver)
 ├── internal/
 │   ├── client/          # 树洞 API 客户端（登录、请求、Cookie 管理）
 │   ├── config/          # 配置管理（账号、数据库、CORS）
@@ -38,21 +39,35 @@
 │   └── utils/           # 工具函数
 ├── py_beta/             # Python 原型验证（仅供参考）
 ├── web/                 # 前端静态资源
-├── config.json          # 账号与数据库配置文件
-├── cookies.json         # 登录凭据（自动生成）
-└── crawler.log          # 运行日志
+└── data/
+    ├── config.json      # 账号与数据库配置文件（启动时自动创建）
+    ├── cookies.json     # 登录凭据（自动生成）
+    └── crawler.log      # 运行日志
 ```
 
 ## 安装与构建
+
+### 完整版本（包含 TUI + 爬虫 + API 服务器）
+
+```bash
+go mod tidy
+go build -tags withserver -o treehole ./cmd/
+```
+
+### 精简版本（仅 TUI + 爬虫，不包含 API 服务器）
 
 ```bash
 go mod tidy
 go build -o treehole ./cmd/
 ```
 
+说明：
+- 使用 `-tags withserver` 编译时会打包 Gin 框架和所有 API 路由
+- 默认编译（无 tag）会跳过 server 子命令，减少二进制体积和依赖
+
 ## 配置
 
-编辑 `config.json` 填写登录信息与数据库配置：
+编辑 `data/config.json` 填写登录信息与数据库配置；首次启动若文件不存在，会自动生成默认配置：
 
 ```json
 {
@@ -67,7 +82,7 @@ go build -o treehole ./cmd/
 ```
 
 说明：
-- 程序会优先复用 `cookies.json` 中的现有登录态。
+- 程序会优先复用 `data/cookies.json` 中的现有登录态。
 - 若 cookie 失效，且配置了 `username` + `password`，则会自动尝试 OAuth / SSO 登录。
 - TUI 遇到“短信验证”时会弹出验证码输入框；遇到“令牌验证”但未配置 `secret_key` 时会弹出动态口令输入框。
 - crawler 为非交互模式；遇到短信验证，或遇到令牌验证但没有可用 `secret_key` 时，会直接退出并提示原因。

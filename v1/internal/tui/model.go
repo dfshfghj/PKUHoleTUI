@@ -177,6 +177,8 @@ type AuthChallengeType int
 
 const (
 	AuthChallengeTypeNone AuthChallengeType = iota
+	AuthChallengeTypeUsername
+	AuthChallengeTypePassword
 	AuthChallengeTypeSMS
 	AuthChallengeTypeOTP
 )

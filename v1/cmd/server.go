@@ -1,3 +1,5 @@
+//go:build withserver
+
 package main
 
 import (
@@ -48,10 +50,11 @@ func runServer() error {
 	addr := fmt.Sprintf("%s:%s", serverHost, serverPort)
 	log.Printf("Starting PKU Hole API server on %s...", addr)
 	log.Printf("API endpoints:")
-	log.Printf("  GET http://%s:%s/pku_hole?begin=0&limit=25", serverHost, serverPort)
+	log.Printf("  GET http://%s:%s/help", serverHost, serverPort)
+	log.Printf("  GET http://%s:%s/posts?begin=0&limit=25", serverHost, serverPort)
 	log.Printf("  GET http://%s:%s/post/:pid", serverHost, serverPort)
-	log.Printf("  GET http://%s:%s/post/:pid/comments?begin=0&limit=25", serverHost, serverPort)
-	log.Printf("  GET http://%s:%s/search?q=keyword&begin=0&limit=25", serverHost, serverPort)
+	log.Printf("  GET http://%s:%s/comment?cid=123", serverHost, serverPort)
+	log.Printf("  GET http://%s:%s/comments/:pid?begin=0&limit=25&sort=0", serverHost, serverPort)
 	log.Printf("  GET http://%s:%s/health", serverHost, serverPort)
 
 	if err := r.Run(addr); err != nil {

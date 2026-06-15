@@ -63,8 +63,10 @@ func TestRouterRegistration(t *testing.T) {
 	routes := r.Routes()
 	expectedPaths := map[string]bool{
 		"/health":        false,
+		"/help":          false,
 		"/posts":         false,
 		"/post/:pid":     false,
+		"/comment":       false,
 		"/comments/:pid": false,
 		"/media/image":   false,
 	}
@@ -131,6 +133,32 @@ func TestCommentsEndpointInvalidPid(t *testing.T) {
 
 	if w.Code != 400 {
 		t.Errorf("Status = %d, want 400", w.Code)
+	}
+}
+
+func TestCommentEndpointInvalidCid(t *testing.T) {
+	_, r, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/comment?cid=abc", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("Status = %d, want 400", w.Code)
+	}
+}
+
+func TestHelpEndpoint(t *testing.T) {
+	_, r, cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/help", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("Status = %d, want 200", w.Code)
 	}
 }
 

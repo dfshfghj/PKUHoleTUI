@@ -91,8 +91,21 @@ func (c *Client) ProbeSession() SessionStatus {
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		status.FailureKind = SessionFailureNetwork
+		status.Message = err.Error()
+		return status
+	}
+
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
+		trimmed := strings.TrimSpace(string(body))
+		if strings.HasPrefix(trimmed, "<") {
+			status.FailureKind = SessionFailureLogin
+			status.Message = "登录态不可用"
+			return status
+		}
 		status.FailureKind = SessionFailureNetwork
 		status.Message = err.Error()
 		return status

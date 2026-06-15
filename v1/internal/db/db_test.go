@@ -220,6 +220,35 @@ func TestGetCommentsByPidCursorPreloadsQuote(t *testing.T) {
 	}
 }
 
+func TestGetCommentByCid(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	seedPosts(t, db, []models.Post{
+		{Pid: 1, Text: "Test Post", Type: "text", Timestamp: 1000},
+	})
+
+	quoteID := int32(1)
+	seedComments(t, db, []models.Comment{
+		{Cid: 1, Pid: 1, Text: "Quoted comment", Timestamp: 1100, NameTag: "user1"},
+		{Cid: 2, Pid: 1, Text: "Reply comment", Timestamp: 1200, NameTag: "user2", QuoteID: &quoteID},
+	})
+
+	comment, err := db.GetCommentByCid(2)
+	if err != nil {
+		t.Fatalf("GetCommentByCid: %v", err)
+	}
+	if comment.Cid != 2 {
+		t.Fatalf("Cid = %d, want 2", comment.Cid)
+	}
+	if comment.Quote == nil {
+		t.Fatal("GetCommentByCid should preload Quote")
+	}
+	if comment.Quote.Text != "Quoted comment" {
+		t.Fatalf("Quote.Text = %q, want %q", comment.Quote.Text, "Quoted comment")
+	}
+}
+
 func TestUpsertCommentsNullByteSanitize(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

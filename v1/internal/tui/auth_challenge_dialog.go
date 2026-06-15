@@ -47,17 +47,31 @@ func (m *AuthChallengeDialogModel) ApplyState(state SessionState) {
 		m.message = state.Message
 	}
 	switch state.Challenge {
+	case AuthChallengeTypeUsername:
+		m.title = "账号登录"
+		m.input.Placeholder = "输入用户名"
+		m.input.EchoMode = textinput.EchoNormal
+		m.focusSend = false
+	case AuthChallengeTypePassword:
+		m.title = "密码登录"
+		m.input.Placeholder = "输入用户密码"
+		m.input.EchoMode = textinput.EchoPassword
+		m.input.EchoCharacter = '*'
+		m.focusSend = false
 	case AuthChallengeTypeSMS:
 		m.title = "短信验证"
 		m.input.Placeholder = "输入短信验证码"
+		m.input.EchoMode = textinput.EchoNormal
 		m.focusSend = true
 	case AuthChallengeTypeOTP:
 		m.title = "令牌验证"
 		m.input.Placeholder = "输入手机令牌"
+		m.input.EchoMode = textinput.EchoNormal
 		m.focusSend = false
 	default:
 		m.title = "认证验证"
 		m.input.Placeholder = "输入验证码"
+		m.input.EchoMode = textinput.EchoNormal
 		m.focusSend = false
 	}
 	_ = m.input.Focus()

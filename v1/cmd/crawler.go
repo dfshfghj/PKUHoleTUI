@@ -29,6 +29,7 @@ func newCrawlerCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&convertWebp, "convert-webp", true, "convert downloaded images to WebP format")
 
 	cmd.AddCommand(newFetchImagesCmd())
+	cmd.AddCommand(newFetchThumbnailsCmd())
 
 	return cmd
 }
@@ -56,6 +57,40 @@ func newFetchImagesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&convertWebp, "convert-webp", true, "convert downloaded images to WebP format")
+
+	return cmd
+}
+
+func newFetchThumbnailsCmd() *cobra.Command {
+	var startID int
+	var endID int
+	var convertThumbWebp bool
+
+	cmd := &cobra.Command{
+		Use:   "fetch-thumbnails",
+		Short: "Download thumbnails by media ID range",
+		Long:  `按 media id 区间批量下载缩略图到 data/thumbnails/。`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, _, err := initClientForCrawler()
+			if err != nil {
+				return err
+			}
+
+			downloaded, skipped, err := crawler.FetchThumbnailsByIDRange(client, startID, endID, convertThumbWebp)
+			if err != nil {
+				return err
+			}
+
+			cmd.Printf("thumbnails completed: downloaded=%d skipped=%d range=%d-%d\n", downloaded, skipped, startID, endID)
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVar(&startID, "start-id", 0, "starting media id (inclusive)")
+	cmd.Flags().IntVar(&endID, "end-id", 0, "ending media id (inclusive)")
+	cmd.Flags().BoolVar(&convertThumbWebp, "convert-webp", false, "convert downloaded thumbnails to WebP format")
+	_ = cmd.MarkFlagRequired("start-id")
+	_ = cmd.MarkFlagRequired("end-id")
 
 	return cmd
 }

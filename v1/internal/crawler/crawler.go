@@ -27,14 +27,12 @@ import (
 var (
 	rawResponses   []map[string]interface{}
 	rawResponsesMu sync.Mutex
-	imageDirOnce   sync.Once
 	imageDir       = "data/images"
+	thumbnailDir   = "data/thumbnails"
 )
 
-func ensureImageDir() {
-	imageDirOnce.Do(func() {
-		os.MkdirAll(imageDir, 0755)
-	})
+func ensureDir(dir string) {
+	_ = os.MkdirAll(dir, 0755)
 }
 
 type APIResponse struct {
@@ -493,11 +491,44 @@ func downloadImages(c *client.Client, mediaIDs string, fallbackPID int32, conver
 	return downloaded, skipped
 }
 
+// FetchThumbnailsByIDRange 批量下载缩略图，返回 (新下载数, 跳过数)
+func FetchThumbnailsByIDRange(c *client.Client, startID int, endID int, convertWebp bool) (int, int, error) {
+	if startID <= 0 || endID <= 0 {
+		return 0, 0, fmt.Errorf("media id 必须大于 0")
+	}
+	if startID > endID {
+		return 0, 0, fmt.Errorf("startID(%d) 不能大于 endID(%d)", startID, endID)
+	}
+
+	urlTemplate := "https://treehole.pku.edu.cn/chapi/api/v3/media/getThumbnail?id=%d"
+	downloaded, skipped := downloadMediaByIDRange(c, startID, endID, urlTemplate, thumbnailDir, convertWebp)
+	log.Printf("[Crawler] 缩略图批量下载完成: range=%d-%d, downloaded=%d, skipped=%d", startID, endID, downloaded, skipped)
+	return downloaded, skipped, nil
+}
+
+func downloadMediaByIDRange(c *client.Client, startID int, endID int, urlTemplate string, outputDir string, convertWebp bool) (int, int) {
+	downloaded := 0
+	skipped := 0
+	for id := startID; id <= endID; id++ {
+		url := fmt.Sprintf(urlTemplate, id)
+		if saveMedia(c, url, int32(id), outputDir, convertWebp) {
+			downloaded++
+		} else {
+			skipped++
+		}
+	}
+	return downloaded, skipped
+}
+
 // saveImage 下载并保存图片文件，返回是否新下载
 func saveImage(c *client.Client, url string, mediaID int32, convertWebp bool) bool {
-	ensureImageDir()
+	return saveMedia(c, url, mediaID, imageDir, convertWebp)
+}
 
-	basePath := filepath.Join(imageDir, fmt.Sprintf("%d", mediaID))
+func saveMedia(c *client.Client, url string, mediaID int32, outputDir string, convertWebp bool) bool {
+	ensureDir(outputDir)
+
+	basePath := filepath.Join(outputDir, fmt.Sprintf("%d", mediaID))
 
 	if fileExists(basePath) {
 		return false

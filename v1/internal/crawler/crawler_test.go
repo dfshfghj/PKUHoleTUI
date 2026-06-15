@@ -1,7 +1,17 @@
 package crawler
 
 import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"treehole/internal/client"
 )
 
 func TestGetJSONStringFromInterface(t *testing.T) {
@@ -79,4 +89,81 @@ func TestGetIntFieldNonNumeric(t *testing.T) {
 	if getIntField(data, "str") != 0 {
 		t.Errorf("getIntField(str) should return 0 for non-numeric value")
 	}
+}
+
+func TestSaveMediaStoresPNGWithOriginalExtension(t *testing.T) {
+	pngData := mustEncodePNG(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngData)
+	}))
+	defer srv.Close()
+
+	c := mustNewTestClient(t)
+	outputDir := t.TempDir()
+
+	if ok := saveMedia(c, srv.URL, 30001, outputDir, false); !ok {
+		t.Fatal("saveMedia returned false, want true")
+	}
+
+	filename := filepath.Join(outputDir, "30001.png")
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatalf("read saved file: %v", err)
+	}
+	if !bytes.Equal(data, pngData) {
+		t.Fatal("saved file content mismatch")
+	}
+}
+
+func TestDownloadMediaByIDRangeDownloadsAndSkipsFailures(t *testing.T) {
+	pngData := mustEncodePNG(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("id") {
+		case "30000", "30001":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(pngData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := mustNewTestClient(t)
+	outputDir := t.TempDir()
+
+	downloaded, skipped := downloadMediaByIDRange(c, 30000, 30002, srv.URL+"?id=%d", outputDir, false)
+	if downloaded != 2 {
+		t.Fatalf("downloaded=%d, want 2", downloaded)
+	}
+	if skipped != 1 {
+		t.Fatalf("skipped=%d, want 1", skipped)
+	}
+	for _, id := range []string{"30000.png", "30001.png"} {
+		if _, err := os.Stat(filepath.Join(outputDir, id)); err != nil {
+			t.Fatalf("expected file %s to exist: %v", id, err)
+		}
+	}
+}
+
+func mustEncodePNG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.NRGBA{R: 255, A: 255})
+	img.Set(1, 1, color.NRGBA{G: 255, A: 255})
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func mustNewTestClient(t *testing.T) *client.Client {
+	t.Helper()
+	c, err := client.NewClient("test-device")
+	if err != nil {
+		t.Fatalf("client.NewClient: %v", err)
+	}
+	return c
 }

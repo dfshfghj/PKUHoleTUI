@@ -15,9 +15,11 @@ import (
 type AuthChallengeKind string
 
 const (
-	AuthChallengeNone AuthChallengeKind = ""
-	AuthChallengeSMS  AuthChallengeKind = "sms"
-	AuthChallengeOTP  AuthChallengeKind = "otp"
+	AuthChallengeNone     AuthChallengeKind = ""
+	AuthChallengeUsername AuthChallengeKind = "username"
+	AuthChallengePassword AuthChallengeKind = "password"
+	AuthChallengeSMS      AuthChallengeKind = "sms"
+	AuthChallengeOTP      AuthChallengeKind = "otp"
 )
 
 type AuthBootstrapResult struct {
@@ -39,16 +41,49 @@ func DetectAuthChallenge(message string) AuthChallengeKind {
 }
 
 func (c *Client) BootstrapSession(cfg *config.Config) AuthBootstrapResult {
+	if cfg != nil && cfg.HasAnyPasswordLoginInput() && !cfg.HasPasswordLogin() {
+		return c.BootstrapSessionWithPassword(cfg, cfg.Password)
+	}
 	result := c.finalizeAuthStatus()
 	if result.Status.CanReadOnline {
 		return result
 	}
-	if cfg == nil || !cfg.HasPasswordLogin() {
+	if cfg == nil || !cfg.HasAnyPasswordLoginInput() {
 		return result
 	}
+	return c.BootstrapSessionWithPassword(cfg, cfg.Password)
+}
 
+func (c *Client) BootstrapSessionWithPassword(cfg *config.Config, password string) AuthBootstrapResult {
+	if cfg == nil || strings.TrimSpace(cfg.Username) == "" {
+		return AuthBootstrapResult{
+			Status: SessionStatus{
+				HasSession:  c.GetAuthorization() != "",
+				FailureKind: SessionFailureLogin,
+				Message:     "未配置用户名，请输入账号后重试",
+			},
+			Challenge:       AuthChallengeUsername,
+			ChallengeReason: "未配置用户名，请输入账号后重试",
+		}
+	}
+	if strings.TrimSpace(password) == "" {
+		return AuthBootstrapResult{
+			Status: SessionStatus{
+				HasSession:  c.GetAuthorization() != "",
+				FailureKind: SessionFailureLogin,
+				Message:     "未配置密码，请输入密码后重试",
+			},
+			Challenge:       AuthChallengePassword,
+			ChallengeReason: "未配置密码，请输入密码后重试",
+		}
+	}
+	return c.bootstrapSessionWithPassword(cfg, password)
+}
+
+func (c *Client) bootstrapSessionWithPassword(cfg *config.Config, password string) AuthBootstrapResult {
+	result := c.finalizeAuthStatus()
 	result.LoginAttempted = true
-	oauthResult, err := c.OAuthLogin(cfg.Username, cfg.Password)
+	oauthResult, err := c.OAuthLogin(cfg.Username, password)
 	if err != nil {
 		result.Status.FailureKind = ClassifySessionError(err)
 		result.Status.Message = err.Error()
@@ -60,9 +95,9 @@ func (c *Client) BootstrapSession(cfg *config.Config) AuthBootstrapResult {
 	token, ok := oauthResult["token"].(string)
 	if !ok || token == "" {
 		result.Status.FailureKind = SessionFailureLogin
-		result.Status.Message = "OAuth 登录未返回 token"
-		result.Challenge = AuthChallengeNone
-		result.ChallengeReason = ""
+		result.Status.Message = "OAuth 登录未返回 token，请输入密码后重试"
+		result.Challenge = AuthChallengePassword
+		result.ChallengeReason = result.Status.Message
 		return result
 	}
 

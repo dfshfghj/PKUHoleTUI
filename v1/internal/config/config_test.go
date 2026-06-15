@@ -73,12 +73,22 @@ func TestConfigAuthCapabilityHelpers(t *testing.T) {
 	if !cfg.HasPasswordLogin() {
 		t.Fatal("HasPasswordLogin() = false, want true")
 	}
+	if !cfg.HasAnyPasswordLoginInput() {
+		t.Fatal("HasAnyPasswordLoginInput() = false, want true")
+	}
 	if cfg.HasTOTPSecret() {
 		t.Fatal("HasTOTPSecret() = true, want false")
 	}
 	cfg.SecretKey = "secret"
 	if !cfg.HasTOTPSecret() {
 		t.Fatal("HasTOTPSecret() = false, want true")
+	}
+	cfg = &Config{Password: "pass"}
+	if !cfg.HasAnyPasswordLoginInput() {
+		t.Fatal("HasAnyPasswordLoginInput() = false, want true for password-only config")
+	}
+	if cfg.HasPasswordLogin() {
+		t.Fatal("HasPasswordLogin() = true, want false for password-only config")
 	}
 }
 

@@ -64,7 +64,10 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&dbPath, "db-path", "./treehole.db", "database file path")
 	rootCmd.PersistentFlags().StringVar(&tuiCaptureDir, "tui-capture-dir", "", "write TUI raw ANSI output and latest frame snapshots to this directory")
 
-	rootCmd.AddCommand(newServerCmd())
+	serverCmd := newServerCmd()
+	if serverCmd != nil {
+		rootCmd.AddCommand(serverCmd)
+	}
 	rootCmd.AddCommand(newCrawlerCmd())
 
 	return rootCmd

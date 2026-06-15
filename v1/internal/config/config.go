@@ -200,6 +200,13 @@ func (c *Config) HasPasswordLogin() bool {
 	return c.Username != "" && c.Password != ""
 }
 
+func (c *Config) HasAnyPasswordLoginInput() bool {
+	if c == nil {
+		return false
+	}
+	return c.Username != "" || c.Password != ""
+}
+
 func (c *Config) HasTOTPSecret() bool {
 	if c == nil {
 		return false

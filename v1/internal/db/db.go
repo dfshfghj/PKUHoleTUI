@@ -258,6 +258,15 @@ func (d *Database) GetPostByPid(pid int32) (*models.Post, error) {
 	return &post, nil
 }
 
+func (d *Database) GetCommentByCid(cid int32) (*models.Comment, error) {
+	var comment models.Comment
+	err := d.db.Model(&models.Comment{}).Preload("Quote").First(&comment, "cid = ?", cid).Error
+	if err != nil {
+		return nil, err
+	}
+	return &comment, nil
+}
+
 // GetPostsCursor 游标分页获取帖子列表 (DESC)
 func (d *Database) GetPostsCursor(cursor int, limit int, sortAsc bool) ([]models.Post, error) {
 	var posts []models.Post

@@ -1504,6 +1504,44 @@ func TestSessionRefreshSMSChallengeOpensAuthDialog(t *testing.T) {
 	}
 }
 
+func TestSessionRefreshPasswordChallengeOpensAuthDialog(t *testing.T) {
+	m := newTestModel()
+
+	result, _ := m.Update(SessionRefreshMsg{State: SessionState{
+		Mode:             SessionModeOffline,
+		Challenge:        AuthChallengeTypePassword,
+		ChallengeMessage: "OAuth 登录未返回 token，请输入密码后重试",
+		Message:          "OAuth 登录未返回 token，请输入密码后重试",
+	}})
+	got := result.(Model)
+
+	if got.Dialog != DialogAuthChallenge {
+		t.Fatalf("dialog = %v, want auth challenge", got.Dialog)
+	}
+	if got.AuthDialog.Kind() != AuthChallengeTypePassword {
+		t.Fatalf("auth dialog kind = %v, want password", got.AuthDialog.Kind())
+	}
+}
+
+func TestSessionRefreshUsernameChallengeOpensAuthDialog(t *testing.T) {
+	m := newTestModel()
+
+	result, _ := m.Update(SessionRefreshMsg{State: SessionState{
+		Mode:             SessionModeOffline,
+		Challenge:        AuthChallengeTypeUsername,
+		ChallengeMessage: "未配置用户名，请输入账号后重试",
+		Message:          "未配置用户名，请输入账号后重试",
+	}})
+	got := result.(Model)
+
+	if got.Dialog != DialogAuthChallenge {
+		t.Fatalf("dialog = %v, want auth challenge", got.Dialog)
+	}
+	if got.AuthDialog.Kind() != AuthChallengeTypeUsername {
+		t.Fatalf("auth dialog kind = %v, want username", got.AuthDialog.Kind())
+	}
+}
+
 func TestHandleAuthChallengeEscFallsBackOffline(t *testing.T) {
 	m := newTestModel()
 	m.Dialog = DialogAuthChallenge
@@ -1524,6 +1562,59 @@ func TestHandleAuthChallengeEscFallsBackOffline(t *testing.T) {
 	}
 	if result.Posts.StatusText == "" {
 		t.Fatal("expected offline status text after auth challenge escape")
+	}
+}
+
+func TestHandleAuthChallengePasswordRequiresNonEmptyValue(t *testing.T) {
+	m := newTestModel()
+	m.Dialog = DialogAuthChallenge
+	m.Session = SessionState{
+		Mode:             SessionModeOffline,
+		Challenge:        AuthChallengeTypePassword,
+		ChallengeMessage: "OAuth 登录未返回 token，请输入密码后重试",
+	}
+	m.AuthDialog = NewAuthChallengeDialog(m.Session)
+
+	result, cmd := m.handleAuthChallengeKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if cmd != nil {
+		t.Fatal("expected no command when password is empty")
+	}
+	if result.AuthDialog.errorText != "密码不能为空" {
+		t.Fatalf("error text = %q, want 密码不能为空", result.AuthDialog.errorText)
+	}
+}
+
+func TestHandleAuthChallengeUsernameRequiresNonEmptyValue(t *testing.T) {
+	m := newTestModel()
+	m.Dialog = DialogAuthChallenge
+	m.Session = SessionState{
+		Mode:             SessionModeOffline,
+		Challenge:        AuthChallengeTypeUsername,
+		ChallengeMessage: "未配置用户名，请输入账号后重试",
+	}
+	m.AuthDialog = NewAuthChallengeDialog(m.Session)
+
+	result, cmd := m.handleAuthChallengeKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if cmd != nil {
+		t.Fatal("expected no command when username is empty")
+	}
+	if result.AuthDialog.errorText != "用户名不能为空" {
+		t.Fatalf("error text = %q, want 用户名不能为空", result.AuthDialog.errorText)
+	}
+}
+
+func TestSubmitUsernameChallengeCmdRequestsPasswordWhenPasswordMissing(t *testing.T) {
+	cfg := &config.Config{}
+
+	msg := submitUsernameChallengeCmd(nil, cfg, "testuser")().(AuthChallengeResultMsg)
+
+	if msg.State.Challenge != AuthChallengeTypePassword {
+		t.Fatalf("challenge = %v, want password", msg.State.Challenge)
+	}
+	if cfg.Username != "testuser" {
+		t.Fatalf("cfg username = %q, want testuser", cfg.Username)
 	}
 }
 

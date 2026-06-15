@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"treehole/internal/client"
@@ -696,12 +697,29 @@ func (m Model) handleAuthChallengeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		code := m.AuthDialog.Value()
 		if code == "" {
-			m.AuthDialog.SetError(errors.New("验证码不能为空"))
+			if m.AuthDialog.Kind() == AuthChallengeTypeUsername {
+				m.AuthDialog.SetError(errors.New("用户名不能为空"))
+			} else if m.AuthDialog.Kind() == AuthChallengeTypePassword {
+				m.AuthDialog.SetError(errors.New("密码不能为空"))
+			} else {
+				m.AuthDialog.SetError(errors.New("验证码不能为空"))
+			}
 			return m, nil
 		}
 		m.AuthDialog.SetSubmitting(true)
 		m.AuthDialog.SetError(nil)
 		m.AuthDialog.SetStatus("")
+		if m.AuthDialog.Kind() == AuthChallengeTypeUsername {
+			if m.Config == nil {
+				defaultCfg := config.DefaultConfig()
+				m.Config = &defaultCfg
+			}
+			m.Config.Username = strings.TrimSpace(code)
+			return m, submitUsernameChallengeCmd(m.Client, m.Config, code)
+		}
+		if m.AuthDialog.Kind() == AuthChallengeTypePassword {
+			return m, submitPasswordLoginCmd(m.Client, m.Config, code)
+		}
 		return m, submitAuthChallengeCmd(m.Client, m.AuthDialog.Kind(), code)
 	}
 	cmd := m.AuthDialog.Update(msg)
@@ -996,7 +1014,7 @@ func refreshSessionCmd(c *client.Client, cfg *config.Config) tea.Cmd {
 
 func attemptBootstrapSession(c *client.Client, cfg *config.Config) SessionState {
 	state := toTUISessionState(c.BootstrapSession(cfg))
-	if !state.CanReadOnline && state.Challenge == AuthChallengeTypeNone && (cfg == nil || !cfg.HasPasswordLogin()) {
+	if !state.CanReadOnline && state.Challenge == AuthChallengeTypeNone && (cfg == nil || !cfg.HasAnyPasswordLoginInput()) {
 		state.FailureReason = SessionFailureReasonLogin
 		state.NeedsConfig = true
 		if state.Message == "" || state.Message == "登录态不可用" {
@@ -1009,6 +1027,42 @@ func attemptBootstrapSession(c *client.Client, cfg *config.Config) SessionState 
 func submitAuthChallengeCmd(c *client.Client, kind AuthChallengeType, code string) tea.Cmd {
 	return func() tea.Msg {
 		result := c.ContinueAuthChallenge(toClientAuthChallenge(kind), code)
+		return AuthChallengeResultMsg{State: toTUISessionState(result)}
+	}
+}
+
+func submitPasswordLoginCmd(c *client.Client, cfg *config.Config, password string) tea.Cmd {
+	return func() tea.Msg {
+		result := c.BootstrapSessionWithPassword(cfg, password)
+		return AuthChallengeResultMsg{State: toTUISessionState(result)}
+	}
+}
+
+func submitUsernameChallengeCmd(c *client.Client, cfg *config.Config, username string) tea.Cmd {
+	return func() tea.Msg {
+		trimmed := strings.TrimSpace(username)
+		if trimmed == "" {
+			return AuthChallengeResultMsg{State: SessionState{
+				Mode:             SessionModeOffline,
+				Challenge:        AuthChallengeTypeUsername,
+				ChallengeMessage: "用户名不能为空",
+				Message:          "用户名不能为空",
+			}}
+		}
+		if cfg == nil {
+			defaultCfg := config.DefaultConfig()
+			cfg = &defaultCfg
+		}
+		cfg.Username = trimmed
+		if strings.TrimSpace(cfg.Password) == "" {
+			return AuthChallengeResultMsg{State: SessionState{
+				Mode:             SessionModeOffline,
+				Challenge:        AuthChallengeTypePassword,
+				ChallengeMessage: "请输入用户密码",
+				Message:          "请输入用户密码",
+			}}
+		}
+		result := c.BootstrapSessionWithPassword(cfg, cfg.Password)
 		return AuthChallengeResultMsg{State: toTUISessionState(result)}
 	}
 }
@@ -1055,10 +1109,14 @@ func toTUISessionState(result client.AuthBootstrapResult) SessionState {
 
 func toTUIAuthChallenge(kind client.AuthChallengeKind) AuthChallengeType {
 	switch kind {
+	case client.AuthChallengeUsername:
+		return AuthChallengeTypeUsername
 	case client.AuthChallengeSMS:
 		return AuthChallengeTypeSMS
 	case client.AuthChallengeOTP:
 		return AuthChallengeTypeOTP
+	case client.AuthChallengePassword:
+		return AuthChallengeTypePassword
 	default:
 		return AuthChallengeTypeNone
 	}
@@ -1066,6 +1124,10 @@ func toTUIAuthChallenge(kind client.AuthChallengeKind) AuthChallengeType {
 
 func toClientAuthChallenge(kind AuthChallengeType) client.AuthChallengeKind {
 	switch kind {
+	case AuthChallengeTypeUsername:
+		return client.AuthChallengeUsername
+	case AuthChallengeTypePassword:
+		return client.AuthChallengePassword
 	case AuthChallengeTypeSMS:
 		return client.AuthChallengeSMS
 	case AuthChallengeTypeOTP:

@@ -85,3 +85,22 @@ func TestUnReadUsesUnifiedTreeholeHeaders(t *testing.T) {
 		t.Fatalf("x-xsrf-token = %q, want %q", got, "xsrf-789")
 	}
 }
+
+func TestProbeSessionTreatsHTMLResponseAsLoginUnavailable(t *testing.T) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New: %v", err)
+	}
+	c := &Client{
+		httpClient: &http.Client{Jar: jar, Transport: &captureRoundTripper{body: "<html>login</html>"}},
+	}
+
+	status := c.ProbeSession()
+
+	if status.FailureKind != SessionFailureLogin {
+		t.Fatalf("failure kind = %q, want %q", status.FailureKind, SessionFailureLogin)
+	}
+	if status.Message != "登录态不可用" {
+		t.Fatalf("message = %q, want 登录态不可用", status.Message)
+	}
+}

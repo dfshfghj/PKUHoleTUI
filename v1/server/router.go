@@ -11,8 +11,10 @@ import (
 
 func Init(e *gin.Engine, database *db.Database) {
 	e.GET("/health", handles.Health)
+	e.GET("/help", handles.Help)
 	e.GET("/posts", handles.GetPosts(database))
 	e.GET("/post/:pid", handles.GetPost(database))
+	e.GET("/comment", handles.GetComment(database))
 	e.GET("/comments/:pid", handles.GetComments(database))
 	e.GET("/media/image", handles.GetImage)
 
