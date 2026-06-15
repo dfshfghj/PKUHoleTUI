@@ -151,6 +151,8 @@ var (
 	vDialogHelpStyle lipgloss.Style
 
 	dialogCard lipgloss.Style
+
+	helpCard lipgloss.Style
 )
 
 func init() {
@@ -450,6 +452,11 @@ func applyTheme(mode string) {
 		BorderForeground(colorAccent).
 		Padding(1, 3).
 		Width(70)
+
+	helpCard = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorAccent).
+		Padding(1, 1)
 }
 
 func resolveThemeMode(mode string) string {

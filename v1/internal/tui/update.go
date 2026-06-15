@@ -271,9 +271,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.Dialog = DialogNone
 		return m, nil
 	}
+	if msg.String() == "h" && m.Dialog == DialogHelp {
+		m.Dialog = DialogNone
+		return m, nil
+	}
 
 	if msg.String() == "ctrl+q" && m.Dialog == DialogNone && !m.Posts.Searching {
 		return m, tea.Quit
+	}
+
+	if msg.String() == "h" && m.Dialog == DialogNone && !m.Posts.Searching {
+		m.Dialog = DialogHelp
+		return m, nil
 	}
 
 	if m.Dialog == DialogNone && !m.Posts.Searching && !m.Posts.ShowPostDetail {
@@ -286,9 +295,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.Dialog = DialogLogs
 			m.LogsDialog.SetLoading(true)
 			return m, loadLogsCmd()
-		case "h":
-			m.Dialog = DialogHelp
-			return m, nil
 		}
 	}
 

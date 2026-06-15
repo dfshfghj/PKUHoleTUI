@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	lipgloss2 "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -28,49 +29,7 @@ func (m Model) View() string {
 		h = 24
 	}
 
-	// Tab bar - fixed top
-	tabs := []string{"同步", "帖子"}
-	var segments []powerlineSegment
-	for i, t := range tabs {
-		if i == m.TabCursor {
-			segments = append(segments, powerlineSegment{Text: t, Style: tabItemActiveStyle})
-		} else {
-			segments = append(segments, powerlineSegment{Text: t, Style: tabItemStyle})
-		}
-	}
-	tabBar := m.renderTabBar(w, m.renderPowerlineGroup(segments, powerlineRight))
-
-	// Footer - fixed bottom
-	footer := m.renderStatusLine(w)
-
-	contentHeight := m.contentAreaHeightForSize(w, h)
-	content, placements := m.renderContent(contentHeight)
-	for i := range placements {
-		placements[i].top += lipgloss.Height(tabBar)
-	}
-	contentBlock := lipgloss.Place(
-		w,
-		contentHeight,
-		lipgloss.Left,
-		lipgloss.Top,
-		content,
-	)
-
-	body := lipgloss.JoinVertical(lipgloss.Left, tabBar, contentBlock, footer)
-
-	// Dialog overlay
-	if m.Dialog != DialogNone {
-		dialog := m.renderDialog()
-		body = lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, dialog)
-	}
-
-	rendered := lipgloss.Place(
-		w,
-		h,
-		lipgloss.Left,
-		lipgloss.Top,
-		body,
-	)
+	rendered, placements := m.renderScreen(w, h)
 	rendered = baseStyle.Render(rendered)
 	if m.Images != nil && m.Images.Enabled() {
 		m.Images.SetFrame(placements)
@@ -80,6 +39,78 @@ func (m Model) View() string {
 	}
 
 	return rendered
+}
+
+func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
+	if m.Dialog == DialogHelp {
+		return m.renderHelpScreen(width, height)
+	}
+
+	body, placements := m.renderMainLayout(width, height)
+	if m.Dialog != DialogNone {
+		dialog := m.renderDialog()
+		body = lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, dialog)
+	}
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
+}
+
+func (m Model) renderMainLayout(width, height int) (string, []imagePlacement) {
+	m.Width = width
+	m.Height = height
+
+	tabs := []string{"同步", "帖子"}
+	var segments []powerlineSegment
+	for i, t := range tabs {
+		if i == m.TabCursor {
+			segments = append(segments, powerlineSegment{Text: t, Style: tabItemActiveStyle})
+		} else {
+			segments = append(segments, powerlineSegment{Text: t, Style: tabItemStyle})
+		}
+	}
+	tabBar := m.renderTabBar(width, m.renderPowerlineGroup(segments, powerlineRight))
+	footer := m.renderStatusLine(width)
+
+	contentHeight := m.contentAreaHeightForSize(width, height)
+	content, placements := m.renderContent(contentHeight)
+	for i := range placements {
+		placements[i].top += lipgloss.Height(tabBar)
+	}
+	contentBlock := lipgloss.Place(
+		width,
+		contentHeight,
+		lipgloss.Left,
+		lipgloss.Top,
+		content,
+	)
+
+	body := lipgloss.JoinVertical(lipgloss.Left, tabBar, contentBlock, footer)
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
+}
+
+func (m Model) renderHelpScreen(width, height int) (string, []imagePlacement) {
+	panelWidth := m.helpPanelWidth(width)
+	mainModel := m
+	mainModel.Dialog = DialogNone
+	main, placements := mainModel.renderMainLayout(width, height)
+
+	panel := m.renderHelpPanel(panelWidth)
+	cardHeight := lipgloss.Height(panel)
+
+	statusLineHeight := lipgloss.Height(m.renderStatusLine(width))
+	availableHeight := height - statusLineHeight
+
+	baseLayer := lipgloss2.NewLayer(main)
+	panelX := width - panelWidth
+	if panelX < 0 {
+		panelX = 0
+	}
+	panelY := availableHeight - cardHeight
+	if panelY < 0 {
+		panelY = 0
+	}
+	panelLayer := lipgloss2.NewLayer(panel).X(panelX).Y(panelY).Z(1)
+	body := lipgloss2.NewCompositor(baseLayer, panelLayer).Render()
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
 }
 
 func (m Model) contentAreaHeightForSize(width, height int) int {
@@ -303,7 +334,7 @@ func (m Model) dialogStatusSummary() string {
 	case DialogLogs:
 		return "l: 运行日志 | Esc: 关闭"
 	case DialogHelp:
-		return "h: 快捷键帮助 | Esc: 关闭"
+		return "当前快捷键"
 	case DialogSessionPrompt:
 		return "登录态不可用，按 Enter 选择恢复方式"
 	case DialogAuthChallenge:
@@ -328,20 +359,20 @@ func (m Model) homeStatusSummary() string {
 		if m.Home.LastCrawlPage > 0 {
 			progress = fmt.Sprintf("已抓到第%d页", m.Home.LastCrawlPage)
 		}
-		return fmt.Sprintf("%s | 已运行 %s | Enter: 启停 | m: 切换模式", progress, elapsed)
+		return fmt.Sprintf("%s | 已运行 %s", progress, elapsed)
 	case CrawlerError:
 		if m.Home.HomeLastError != "" {
 			return "爬虫错误: " + m.Home.HomeLastError
 		}
-		return "爬虫错误，按 Enter 或 m 调整后重试"
+		return "爬虫错误"
 	default:
-		return "爬虫已停止 | Enter: 启动/停止 | m: 切换模式"
+		return "爬虫已停止"
 	}
 }
 
 func (m Model) postsStatusSummary() string {
 	if m.Posts.Searching {
-		return "输入关键字后按 Enter 搜索，Esc 取消"
+		return "搜索输入中"
 	}
 	if m.Posts.ShowPostDetail && m.Posts.CurrentPost != nil {
 		comments := fmt.Sprintf("评论 %d", len(m.Posts.CommentList))
@@ -354,12 +385,12 @@ func (m Model) postsStatusSummary() string {
 		if m.Posts.DetailFocus == DetailFocusPost {
 			focus = "焦点: 正文"
 		}
-		return fmt.Sprintf("%s | %s | Tab: 切换正文/评论 | q: 引用评论", comments, focus)
+		return fmt.Sprintf("%s | %s", comments, focus)
 	}
 
-	scope := fmt.Sprintf("%d", len(m.Posts.PostList))
+	scope := fmt.Sprintf("%d 条", len(m.Posts.PostList))
 	if m.Posts.SearchActive {
-		scope = fmt.Sprintf("%d", len(m.Posts.PostList))
+		scope = fmt.Sprintf("%d 条", len(m.Posts.PostList))
 	}
 	if m.Posts.ActiveTag != "" {
 		scope += " | 标签 #" + m.Posts.ActiveTag
@@ -371,7 +402,7 @@ func (m Model) postsStatusSummary() string {
 			scope += " | 正在加载更多..."
 		}
 	}
-	return scope + " | /: 搜索 | Enter: 详情 | r: 刷新 | h: 帮助"
+	return scope
 }
 
 func (m Model) renderSessionLabel() string {
@@ -440,57 +471,136 @@ func (m Model) renderLogsDialog() string {
 }
 
 func (m Model) renderHelpDialog() string {
+	return m.renderHelpPanel(m.helpPanelWidth(m.Width))
+}
+
+func (m Model) renderHelpPanel(width int) string {
+	panelWidth := maxInt(24, width)
+	cardWidth := maxInt(18, panelWidth-helpCard.GetHorizontalFrameSize())
+	innerWidth := cardWidth - helpCard.GetHorizontalPadding()
+	keyWidth := maxInt(6, minInt(10, innerWidth/3))
+	descWidth := maxInt(4, innerWidth-keyWidth-1)
+
 	var b strings.Builder
 
-	b.WriteString(vDialogTitleStyle.Render("快捷键帮助"))
+	b.WriteString(vDialogTitleStyle.Render("快捷键"))
+	b.WriteString("\n")
+	b.WriteString(vStatLabelStyle.Render(m.helpContextTitle()))
 	b.WriteString("\n\n")
 
-	helpItems := []struct {
-		key  string
-		desc string
-	}{
-		{"h", "打开/关闭此帮助菜单"},
-		{"c", "打开配置管理对话框"},
-		{"l", "打开运行日志查看器"},
-		{"Tab", "在首页和帖子列表之间切换"},
-		{"Ctrl+Q", "退出程序"},
-		{"", ""},
-		{"m", "切换爬取模式（顺序/监控）"},
-		{"←→", "选择启动/停止爬虫按钮"},
-		{"Enter", "执行选中的操作"},
-		{"", ""},
-		{"/", "搜索帖子（#pid / :follow）"},
-		{"r", "刷新帖子列表 / 详情"},
-		{"t", "打开标签筛选（在线模式）"},
-		{"n", "发帖（可写在线模式）"},
-		{"Enter", "查看帖子详情"},
-		{"↑↓", "选择帖子 / 滚动评论"},
-		{"PgUp/PgDn", "快速滚动"},
-		{"", ""},
-		{"详情页 p", "点赞 / 取消点赞"},
-		{"详情页 f", "关注 / 取消关注"},
-		{"详情页 c", "发评论"},
-		{"详情页 q", "引用当前选中评论"},
-		{"详情页 s", "评论正序/逆序切换"},
-		{"模式提示", "在线失败时会提示重新登录，短信/令牌验证会弹出输入框"},
-	}
-
-	for _, item := range helpItems {
-		if item.key == "" {
-			b.WriteString("\n")
-			continue
-		}
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top,
-			vStatValueStyle.Width(12).Render(item.key),
-			vStatLabelStyle.Render(item.desc),
+	for _, item := range m.helpItems() {
+		descLines := wrapVisibleLine(item.desc, descWidth)
+		keyText := clipToVisibleWidth(item.key, keyWidth)
+		keyText = vStatValueStyle.Width(keyWidth).Render(keyText)
+		b.WriteString(lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			keyText,
+			" ",
+			vStatLabelStyle.Width(descWidth).Render(descLines[0]),
 		))
+		for _, line := range descLines[1:] {
+			b.WriteString("\n")
+			b.WriteString(lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				vStatValueStyle.Width(keyWidth).Render(""),
+				" ",
+				vStatLabelStyle.Width(descWidth).Render(line),
+			))
+		}
 		b.WriteString("\n")
 	}
-
-	b.WriteString("\n")
 	b.WriteString(vDialogHelpStyle.Render("Esc: 关闭"))
 
-	return m.renderDialogCard(b.String())
+	card := helpCard.Width(cardWidth).Render(b.String())
+	return lipgloss.Place(panelWidth, lipgloss.Height(card), lipgloss.Right, lipgloss.Top, card)
+}
+
+type helpItem struct {
+	key  string
+	desc string
+}
+
+func (m Model) helpPanelWidth(totalWidth int) int {
+	return clampInt(totalWidth/4, 24, 34)
+}
+
+func (m Model) helpContextTitle() string {
+	if m.Page == PageHome {
+		if m.Home.CrawlerState == CrawlerRunning {
+			return "同步页"
+		}
+		return "同步页"
+	}
+	if m.Posts.Searching {
+		return "搜索"
+	}
+	if m.Posts.ShowPostDetail {
+		return "帖子详情"
+	}
+	return "帖子列表"
+}
+
+func (m Model) helpItems() []helpItem {
+	items := []helpItem{{key: "Esc", desc: "关闭帮助"}}
+
+	switch {
+	case m.Page == PageHome:
+		items = append(items,
+			helpItem{key: "Tab", desc: "切到帖子页"},
+			helpItem{key: "←→", desc: "切换按钮"},
+			helpItem{key: "Enter", desc: "启动/停止"},
+			helpItem{key: "c", desc: "打开配置"},
+			helpItem{key: "l", desc: "查看日志"},
+		)
+		if m.Home.CrawlerState != CrawlerRunning {
+			items = append(items, helpItem{key: "m", desc: "切换模式"})
+		}
+	case m.Posts.Searching:
+		items = append(items,
+			helpItem{key: "Enter", desc: "开始搜索"},
+			helpItem{key: "←→", desc: "移动光标"},
+			helpItem{key: "Backspace", desc: "删除字符"},
+		)
+	case m.Posts.ShowPostDetail:
+		items = append(items,
+			helpItem{key: "Tab", desc: "切换正文/评论"},
+			helpItem{key: "↑↓", desc: "滚动当前区域"},
+			helpItem{key: "PgUp/PgDn", desc: "快速翻页"},
+			helpItem{key: "s", desc: "切换排序"},
+			helpItem{key: "r", desc: "刷新详情"},
+		)
+		if m.Posts.CanWrite {
+			items = append(items,
+				helpItem{key: "p", desc: "切换点赞"},
+				helpItem{key: "f", desc: "切换关注"},
+				helpItem{key: "c", desc: "发表评论"},
+				helpItem{key: "q", desc: "引用评论"},
+			)
+		}
+	default:
+		items = append(items,
+			helpItem{key: "Tab", desc: "切到同步页"},
+			helpItem{key: "↑↓", desc: "选择帖子"},
+			helpItem{key: "PgUp/PgDn", desc: "快速翻页"},
+			helpItem{key: "Enter", desc: "打开详情"},
+			helpItem{key: "/", desc: "搜索帖子"},
+			helpItem{key: "r", desc: "刷新列表"},
+			helpItem{key: "c", desc: "打开配置"},
+			helpItem{key: "l", desc: "查看日志"},
+		)
+		if m.Session.Mode == SessionModeOnline {
+			items = append(items, helpItem{key: "t", desc: "标签筛选"})
+		}
+		if m.Posts.CanWrite {
+			items = append(items,
+				helpItem{key: "n", desc: "发布帖子"},
+				helpItem{key: "p", desc: "切换点赞"},
+				helpItem{key: "f", desc: "切换关注"},
+			)
+		}
+	}
+
+	return items
 }
 
 func minInt(a, b int) int {
@@ -505,6 +615,29 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func clipToVisibleWidth(s string, width int) string {
+	if width < 1 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if rw < 1 {
+			rw = 1
+		}
+		if used+rw > width {
+			break
+		}
+		b.WriteRune(r)
+		used += rw
+	}
+	return b.String()
 }
 
 func (m Model) renderDialogCard(content string) string {

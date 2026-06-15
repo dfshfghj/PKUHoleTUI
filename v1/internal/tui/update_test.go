@@ -351,6 +351,23 @@ func TestHandleKeyOpenHelp(t *testing.T) {
 	}
 }
 
+func TestHandleKeyOpenHelpInDetail(t *testing.T) {
+	m := newTestModel()
+	m.Page = PagePosts
+	m.Posts.ShowPostDetail = true
+	m.Posts.CurrentPost = &models.Post{Pid: 42, Text: "detail", Timestamp: 1000}
+
+	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m = result
+
+	if m.Dialog != DialogHelp {
+		t.Errorf("Dialog = %v, want DialogHelp", m.Dialog)
+	}
+	if cmd != nil {
+		t.Error("Opening help in detail should NOT trigger a cmd")
+	}
+}
+
 func TestHandleKeyTabSwitch(t *testing.T) {
 	m := newTestModel()
 	m.Page = PagePosts
@@ -1290,15 +1307,13 @@ func TestViewHelpDialog(t *testing.T) {
 	output := m.View()
 
 	expectedStrings := []string{
-		"快捷键帮助",
-		"打开/关闭此帮助菜单",
-		"打开配置管理",
+		"快捷键",
+		"帖子列表",
+		"打开配置",
 		"搜索帖子",
-		"刷新",
-		"打开标签筛选",
-		"点赞 / 取消点赞",
-		"发评论",
-		"引用当前选中评论",
+		"刷新列表",
+		"打开详情",
+		"Esc",
 	}
 
 	for _, s := range expectedStrings {

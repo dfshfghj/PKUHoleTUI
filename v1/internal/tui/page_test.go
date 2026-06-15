@@ -1149,7 +1149,7 @@ func TestViewStatusLineShowsNormalPostsMode(t *testing.T) {
 	m.Posts.SelectedPostIdx = 0
 
 	output := stripANSI(m.View())
-	expected := []string{"NORMAL", "帖子 列表", "1 | /: 搜索", "OFFLINE"}
+	expected := []string{"NORMAL", "帖子 列表", "1 条", "OFFLINE"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
 			t.Fatalf("status line missing %q in output:\n%s", want, output)
@@ -1597,7 +1597,7 @@ func TestViewHelpDialogStrippedLines(t *testing.T) {
 	lines := visibleLines(output)
 
 	allText := strings.Join(lines, " ")
-	expectedContent := []string{"快捷键帮助", "打开/关闭此帮助菜单", "打开配置管理", "Ctrl+Q", "搜索帖子", "打开标签筛选", "点赞 / 取消点赞", "发评论", "引用当前选中评论", "Esc", "关闭"}
+	expectedContent := []string{"快捷键", "帖子列表", "Esc", "关闭帮助", "Enter", "打开详情", "/", "搜索帖子", "r", "刷新列表", "c", "打开配置"}
 	for _, want := range expectedContent {
 		if !strings.Contains(allText, want) {
 			t.Errorf("Missing expected content: %q", want)
@@ -1605,6 +1605,31 @@ func TestViewHelpDialogStrippedLines(t *testing.T) {
 	}
 
 	t.Logf("Help dialog: %d visible lines", len(lines))
+}
+
+func TestViewHelpDialogUsesDetailContext(t *testing.T) {
+	m := newTestModel()
+	m.Page = PagePosts
+	m.Posts.ShowPostDetail = true
+	m.Posts.CanWrite = true
+	m.Posts.CurrentPost = &models.Post{Pid: 42, Text: "detail", Timestamp: 1000}
+	m.Dialog = DialogHelp
+	m.Width = 140
+	m.Height = 24
+
+	output := strings.Join(visibleLines(m.View()), " ")
+	expected := []string{"帖子详情", "Tab", "切换正文/评论", "s", "切换排序", "q", "引用评论"}
+	for _, want := range expected {
+		if !strings.Contains(output, want) {
+			t.Fatalf("detail help missing %q in output:\n%s", want, output)
+		}
+	}
+	unexpected := []string{"打开详情", "搜索帖子", "标签筛选"}
+	for _, bad := range unexpected {
+		if strings.Contains(output, bad) {
+			t.Fatalf("detail help should not show %q in output:\n%s", bad, output)
+		}
+	}
 }
 
 func TestViewPostsStrippedLinesWithRealData(t *testing.T) {
@@ -1665,7 +1690,7 @@ func TestViewPostsStrippedLinesWithRealData(t *testing.T) {
 	// Should contain statusline count hint
 	foundCountHint := false
 	for _, line := range lines {
-		if strings.Contains(line, " | /: 搜索") {
+		if strings.Contains(line, " 条") {
 			foundCountHint = true
 			break
 		}
