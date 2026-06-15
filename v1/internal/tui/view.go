@@ -291,21 +291,21 @@ func (m Model) currentPageLabel() string {
 	switch m.Page {
 	case PageHome:
 		if m.Home.CrawlMode == CrawlMonitor {
-			return fmt.Sprintf("同步 监控前%d页", m.Home.MonitorPages)
+			return fmt.Sprintf("监控前%d页", m.Home.MonitorPages)
 		}
-		return "同步 顺序抓取"
+		return "顺序抓取"
 	case PagePosts:
 		if m.Posts.ShowPostDetail && m.Posts.CurrentPost != nil {
-			return fmt.Sprintf("帖子 #%d", m.Posts.CurrentPost.Pid)
+			return fmt.Sprintf("#%d", m.Posts.CurrentPost.Pid)
 		}
 		if m.Posts.SearchActive {
 			query := strings.TrimSpace(m.Posts.SearchInput)
 			if query == "" {
-				return "帖子 搜索结果"
+				return "搜索结果"
 			}
 			return fmt.Sprintf("搜索 %s", query)
 		}
-		return "帖子 列表"
+		return "帖子列表"
 	default:
 		return "TreeHole TUI"
 	}
@@ -381,9 +381,9 @@ func (m Model) postsStatusSummary() string {
 		} else if m.Posts.CommentListHasMore {
 			comments += " | 可继续下翻加载更多"
 		}
-		focus := "焦点: 评论"
+		focus := "评论"
 		if m.Posts.DetailFocus == DetailFocusPost {
-			focus = "焦点: 正文"
+			focus = "正文"
 		}
 		return fmt.Sprintf("%s | %s", comments, focus)
 	}

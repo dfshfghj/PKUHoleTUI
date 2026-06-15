@@ -334,15 +334,17 @@ func applyTheme(mode string) {
 		Bold(true)
 
 	vSearchInput = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(colorBorder).
+		Border(lipgloss.InnerHalfBlockBorder(), true, false, true, false).
+		BorderForeground(colorSurface).
+		Background(colorSurface).
 		Padding(0, 1).
 		Width(60).
 		Foreground(colorMuted)
 
 	vSearchInputFocused = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(colorAccent).
+		Border(lipgloss.InnerHalfBlockBorder(), true, false, true, false).
+		BorderForeground(colorSurface).
+		Background(colorSurface).
 		Padding(0, 1).
 		Width(60).
 		Foreground(colorText)
@@ -477,7 +479,7 @@ func paletteForTheme(mode string) themePalette {
 	if shouldUseDarkTheme(mode) {
 		return themePalette{
 			bg:           lipgloss.Color("#000000"),
-			surface:      lipgloss.Color("#333333"),
+			surface:      lipgloss.Color("#1f1f1f"),
 			border:       lipgloss.Color("#4A4A4A"),
 			muted:        lipgloss.Color("#888888"),
 			textSoft:     lipgloss.Color("#B0B0B0"),

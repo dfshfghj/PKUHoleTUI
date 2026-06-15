@@ -154,38 +154,25 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 
 	if p.SearchActive {
 		b.WriteString(vTitleStyle.Render(fmt.Sprintf("搜索结果: %s", p.SearchInput)))
+		b.WriteString("\n")
 	} else {
-		title := "帖子列表"
-		switch p.SessionMode {
-		case SessionModeOnline:
-			title += " [在线]"
-		default:
-			title += " [离线]"
-		}
-		if p.ActiveTag != "" {
-			title += " #" + p.ActiveTag
-		}
-		b.WriteString(vTitleStyle.Render(title))
+		b.WriteString("\n")
 	}
 
 	if p.StatusText != "" {
 		b.WriteString(vStatLabelStyle.Render(p.StatusText))
 	}
-	b.WriteString("\n")
-
-	pageWidth := maxInt(20, width-8)
-	searchLabel := "按 / 搜索"
-	searchStyle := vSearchInput.Width(maxInt(1, pageWidth-vSearchInput.GetHorizontalFrameSize()))
-	searchFocusedStyle := vSearchInputFocused.Width(maxInt(1, pageWidth-vSearchInputFocused.GetHorizontalFrameSize()))
+	searchStyle := vSearchInput.Width(width)
+	searchFocusedStyle := vSearchInputFocused.Width(width)
 	if p.Searching {
 		searchInput := p.SearchField
 		if searchInput.Value() != p.SearchInput {
 			searchInput.SetValue(p.SearchInput)
 		}
-		searchInput.Width = maxInt(1, pageWidth-searchFocusedStyle.GetHorizontalFrameSize())
+		searchInput.Width = maxInt(1, width-searchFocusedStyle.GetHorizontalFrameSize())
 		b.WriteString(searchFocusedStyle.Render(searchInput.View()))
 	} else {
-		b.WriteString(searchStyle.Render(searchLabel))
+		b.WriteString(searchStyle.Render("按 / 搜索"))
 	}
 	b.WriteString("\n")
 
@@ -204,6 +191,7 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 		return b.String(), nil
 	}
 
+	pageWidth := maxInt(20, width-8)
 	contentWidth := pageWidth
 	vp := viewport.New(contentWidth, p.calcPostViewportHeight(height))
 	content, postPlacements := p.buildPostListContent(contentWidth)
@@ -706,10 +694,10 @@ func (p *PostsPageModel) resetComments() {
 
 func (p *PostsPageModel) calcPostViewportHeight(height int) int {
 	titleLines := 2
-	searchLines := 2
 	if p.StatusText != "" {
 		titleLines++
 	}
+	searchLines := lipgloss.Height(vSearchInput.Render("x")) + 1
 	avail := height - titleLines - searchLines
 	if avail < 3 {
 		avail = 3

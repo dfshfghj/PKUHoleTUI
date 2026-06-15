@@ -1149,7 +1149,7 @@ func TestViewStatusLineShowsNormalPostsMode(t *testing.T) {
 	m.Posts.SelectedPostIdx = 0
 
 	output := stripANSI(m.View())
-	expected := []string{"NORMAL", "帖子 列表", "1 条", "OFFLINE"}
+	expected := []string{"NORMAL", "帖子列表", "1 条", "OFFLINE"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
 			t.Fatalf("status line missing %q in output:\n%s", want, output)
@@ -1163,7 +1163,7 @@ func TestViewStatusLineShowsLoadingProgress(t *testing.T) {
 	m.Posts.PostListLoading = true
 
 	output := stripANSI(m.View())
-	expected := []string{"NORMAL", "帖子 列表", "加载帖子中", "OFFLINE"}
+	expected := []string{"NORMAL", "帖子列表", "加载帖子中", "OFFLINE"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
 			t.Fatalf("status line missing %q in loading output:\n%s", want, output)
@@ -1179,7 +1179,7 @@ func TestViewStatusLineShowsDetailMode(t *testing.T) {
 	m.Posts.CommentList = []models.Comment{{Cid: 1, Text: "comment", Timestamp: 1001}}
 
 	output := stripANSI(m.View())
-	expected := []string{"DETAIL-CMT", "帖子 #42", "评论 1", "焦点: 评论"}
+	expected := []string{"DETAIL-CMT", "#42", "评论 1"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
 			t.Fatalf("detail status line missing %q in output:\n%s", want, output)
@@ -1363,7 +1363,7 @@ func TestViewPostDetailStrippedLines(t *testing.T) {
 	lines := visibleLines(output)
 
 	allText := strings.Join(lines, " ")
-	expectedContent := []string{"#42", "Detail post text", "First comment", "Second comment", "user1: quoted text", "正序", "评论 2", "焦点: 评论"}
+	expectedContent := []string{"#42", "Detail post text", "First comment", "Second comment", "user1: quoted text", "正序", "评论 2"}
 	for _, want := range expectedContent {
 		if !strings.Contains(allText, want) {
 			t.Errorf("Missing expected content: %q", want)
