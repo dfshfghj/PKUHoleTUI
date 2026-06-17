@@ -7,20 +7,24 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestFlattenTagsSupportsTagNameChildren(t *testing.T) {
-	_, filename, _, _ := runtime.Caller(0)
-	root := filepath.Join(filepath.Dir(filename), "../..")
-	data, err := os.ReadFile(filepath.Join(root, "doc", "tags.json"))
-	if err != nil {
-		t.Fatalf("read tags.json: %v", err)
-	}
+	data := []byte(`{
+		"data": {
+			"list": [
+				{
+					"id": 22,
+					"tag_name": "课程学业",
+					"children": [
+						{"id": 1, "tag_name": "课程心得", "type_id": 22}
+					]
+				}
+			]
+		}
+	}`)
 	var envelope struct {
 		Data struct {
 			List interface{} `json:"list"`
