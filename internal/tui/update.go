@@ -94,14 +94,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.Posts.SelectedPostIdx = 0
 					m.Posts.CursorLine = 0
 					m.Posts.PostViewport.GotoTop()
+					m.Posts.PostListTotal = len(m.Posts.PostList)
+					m.Posts.PostListCursor = msg.NextCursor
+					m.Posts.PostListHasMore = msg.HasMore
 				} else {
-					m.Posts.PostList = append(m.Posts.PostList, msg.Posts...)
+					var deduped []models.Post
+					if len(m.Posts.PostList) > 0 {
+						lastTs := m.Posts.PostList[len(m.Posts.PostList)-1].Timestamp
+						for _, p := range msg.Posts {
+							if p.Timestamp < lastTs {
+								deduped = append(deduped, p)
+							}
+						}
+					} else {
+						deduped = msg.Posts
+					}
+					if len(deduped) > 0 {
+						m.Posts.PostList = append(m.Posts.PostList, deduped...)
+						m.Posts.PostListTotal = len(m.Posts.PostList)
+						m.Posts.PostListCursor = msg.NextCursor
+						m.Posts.PostListHasMore = msg.HasMore
+					} else if msg.HasMore {
+						m.Posts.PostListLoading = true
+						m.Posts.PostListCursor = msg.NextCursor
+						m.syncPostsPage()
+						return m, m.imageRefreshCmd(loadPostsCmd(m.Provider, msg.NextCursor, m.Posts.PostPerPage, m.Posts.ActiveTagID))
+					} else {
+						m.Posts.PostListCursor = msg.NextCursor
+						m.Posts.PostListHasMore = false
+					}
 				}
 				m.Posts.PostsMode = PostsModeList
 			}
-			m.Posts.PostListTotal = len(m.Posts.PostList)
-			m.Posts.PostListCursor = msg.NextCursor
-			m.Posts.PostListHasMore = msg.HasMore
 		}
 		m.syncPostsPage()
 		return m, m.imageRefreshCmd(nil)
