@@ -24,6 +24,7 @@ const (
 	DialogNone DialogType = iota
 	DialogConfig
 	DialogLogs
+	DialogImage
 	DialogHelp
 	DialogSessionPrompt
 	DialogAuthChallenge
@@ -215,6 +216,7 @@ type Model struct {
 
 	ConfigDialog  ConfigDialogModel
 	LogsDialog    LogsDialogModel
+	ImageDialog   ImageDialogModel
 	SessionDialog SessionPromptDialogModel
 	AuthDialog    AuthChallengeDialogModel
 	Composer      ComposerDialogModel
@@ -261,6 +263,7 @@ func NewModel(database *db.Database, client *client.Client, cfg *config.Config, 
 		Posts:         NewPostsPageModel(),
 		ConfigDialog:  NewConfigDialog(cfg),
 		LogsDialog:    NewLogsDialog(),
+		ImageDialog:   NewImageDialog(),
 		SessionDialog: sessionDialog,
 		AuthDialog:    authDialog,
 		Composer:      NewComposerDialog(),
@@ -295,6 +298,9 @@ func (m *Model) ensureDialogModels() {
 	if !m.LogsDialog.initialized() {
 		m.LogsDialog = NewLogsDialog()
 	}
+	if !m.ImageDialog.initialized() {
+		m.ImageDialog = NewImageDialog()
+	}
 	if !m.SessionDialog.initialized() {
 		m.SessionDialog = NewSessionPromptDialog(m.Session)
 	}
@@ -306,9 +312,6 @@ func (m *Model) ensureDialogModels() {
 	}
 	if !m.TagsDialog.initialized() {
 		m.TagsDialog = NewTagsDialog()
-	}
-	if m.Images != nil {
-		m.Posts.ImagePreview = m.Images.Enabled()
 	}
 	if m.Posts.ImageClient == nil {
 		m.Posts.ImageClient = m.Client

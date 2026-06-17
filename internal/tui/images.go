@@ -2,8 +2,11 @@ package tui
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
+	"hash/fnv"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,19 +26,31 @@ const (
 )
 
 type imagePlacement struct {
-	path string
-	cols int
-	rows int
-	left int
-	top  int
+	path        string
+	cols        int
+	rows        int
+	left        int
+	top         int
+	z           int
+	placeholder bool
+	winCols     int
+	winRows     int
 }
 
 type KittyImageRenderer struct {
 	mu                sync.Mutex
-	placeCache        map[string]string
+	imageIDs          map[string]uint32
+	uploaded          map[uint32]bool
+	activePlacements  map[uint32]activePlacement
+	nextImageID       uint32
 	frameSeq          string
 	frameGeneration   uint64
 	paintedGeneration uint64
+}
+
+type activePlacement struct {
+	imageID   uint32
+	placement imagePlacement
 }
 
 func NewKittyImageRenderer() *KittyImageRenderer {
@@ -43,16 +58,14 @@ func NewKittyImageRenderer() *KittyImageRenderer {
 		return nil
 	}
 	return &KittyImageRenderer{
-		placeCache: make(map[string]string),
+		imageIDs:         make(map[string]uint32),
+		uploaded:         make(map[uint32]bool),
+		activePlacements: make(map[uint32]activePlacement),
 	}
 }
 
 func supportsKittyGraphics() bool {
-	if os.Getenv("KITTY_WINDOW_ID") == "" && !strings.Contains(os.Getenv("TERM"), "kitty") {
-		return false
-	}
-	_, err := exec.LookPath("kitten")
-	return err == nil
+	return os.Getenv("KITTY_WINDOW_ID") != "" || strings.Contains(os.Getenv("TERM"), "kitty")
 }
 
 func (r *KittyImageRenderer) Enabled() bool {
@@ -63,14 +76,14 @@ func (r *KittyImageRenderer) ClearSequence() string {
 	if r == nil {
 		return ""
 	}
-	return "\x1b_Ga=d\x1b\\"
+	return ""
 }
 
 func (r *KittyImageRenderer) SetFrame(placements []imagePlacement) {
 	if r == nil {
 		return
 	}
-	seq := r.ClearSequence() + r.RenderPlacements(placements)
+	seq := r.RenderPlacements(placements)
 	r.mu.Lock()
 	r.frameSeq = seq
 	r.frameGeneration++
@@ -111,49 +124,130 @@ func (r *KittyImageRenderer) PlacementSequence(p imagePlacement) string {
 	if r == nil || p.path == "" || p.cols <= 0 || p.rows <= 0 {
 		return ""
 	}
-
-	key := fmt.Sprintf("%s|%d|%d|%d|%d", p.path, p.cols, p.rows, p.left, p.top)
-
-	r.mu.Lock()
-	if seq, ok := r.placeCache[key]; ok {
-		r.mu.Unlock()
-		return seq
-	}
-	r.mu.Unlock()
-
-	rect := fmt.Sprintf("%dx%d@%dx%d", p.cols, p.rows, p.left, p.top)
-	cmd := exec.Command(
-		"kitten", "icat",
-		"--stdin=no",
-		"--transfer-mode=file",
-		"--place", rect,
-		"--align=left",
-		"--scale-up",
-		"--z-index=-1",
-		p.path,
-	)
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-
-	seq := string(out)
-	r.mu.Lock()
-	r.placeCache[key] = seq
-	r.mu.Unlock()
-	return seq
+	return ""
 }
 
 func (r *KittyImageRenderer) RenderPlacements(placements []imagePlacement) string {
-	if r == nil || len(placements) == 0 {
+	if r == nil {
 		return ""
 	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	var b strings.Builder
-	for _, placement := range placements {
-		b.WriteString(r.PlacementSequence(placement))
+
+	nextActive := make(map[uint32]activePlacement, len(placements))
+	for idx, placement := range placements {
+		if placement.path == "" || placement.cols <= 0 || placement.rows <= 0 {
+			continue
+		}
+
+		placementID := uint32(idx + 1)
+		imageID := r.imageIDForPath(placement.path)
+		prev, hadPrev := r.activePlacements[placementID]
+
+		if !r.uploaded[imageID] {
+			if placement.placeholder {
+				r.uploaded[imageID] = true
+			} else {
+				b.WriteString(uploadImageSequence(imageID, placement.path))
+				r.uploaded[imageID] = true
+			}
+		}
+		if hadPrev && prev.imageID != imageID {
+			b.WriteString(deletePlacementSequence(prev.imageID, prev.placement, placementID))
+		}
+		if !hadPrev || prev.imageID != imageID || prev.placement != placement {
+			if placement.placeholder {
+				b.WriteString(r.placeholderBackendSequence(placement))
+			} else {
+				b.WriteString(placeImageSequence(imageID, placementID, placement))
+			}
+		}
+
+		nextActive[placementID] = activePlacement{
+			imageID:   imageID,
+			placement: placement,
+		}
 	}
+
+	for placementID, prev := range r.activePlacements {
+		if _, stillVisible := nextActive[placementID]; stillVisible {
+			continue
+		}
+		b.WriteString(deletePlacementSequence(prev.imageID, prev.placement, placementID))
+	}
+
+	r.activePlacements = nextActive
 	return b.String()
+}
+
+func (r *KittyImageRenderer) imageIDForPath(path string) uint32 {
+	if id, ok := r.imageIDs[path]; ok {
+		return id
+	}
+	id := mediaImageIDForPath(path)
+	if _, exists := r.uploaded[id]; exists {
+		r.nextImageID++
+		id = id + r.nextImageID
+		if id == 0 {
+			id = 1
+		}
+	}
+	r.imageIDs[path] = id
+	return id
+}
+
+func uploadImageSequence(imageID uint32, path string) string {
+	payload := base64.StdEncoding.EncodeToString([]byte(path))
+	return fmt.Sprintf("\x1b_Gq=2,i=%d,t=f,f=100;%s\x1b\\", imageID, payload)
+}
+
+func placeImageSequence(imageID, placementID uint32, placement imagePlacement) string {
+	return fmt.Sprintf(
+		"\x1b7\x1b[%d;%dH\x1b_Gq=2,a=p,i=%d,p=%d,c=%d,r=%d,C=1,z=%d\x1b\\\x1b8",
+		placement.top+1,
+		placement.left+1,
+		imageID,
+		placementID,
+		placement.cols,
+		placement.rows,
+		placement.z,
+	)
+}
+
+func deletePlacementSequence(imageID uint32, placement imagePlacement, placementID uint32) string {
+	if placement.placeholder {
+		return ""
+	}
+	return fmt.Sprintf("\x1b_Gq=2,a=d,d=i,i=%d,p=%d\x1b\\", imageID, placementID)
+}
+
+func (r *KittyImageRenderer) placeholderBackendSequence(placement imagePlacement) string {
+	args := kittenICatArgs(placement)
+	out, err := exec.Command("kitten", args...).Output()
+	if err != nil {
+		log.Printf("[TUI][kitty] kitten icat backend failed: err=%v args=%v", err, args)
+		return ""
+	}
+	return string(out)
+}
+
+func kittenICatArgs(placement imagePlacement) []string {
+	winCols := maxInt(1, placement.winCols)
+	winRows := maxInt(1, placement.winRows)
+	winPixelsW := winCols * 10
+	winPixelsH := winRows * 20
+	return []string{
+		"icat",
+		"--stdin=no",
+		"--unicode-placeholder",
+		"--use-window-size", fmt.Sprintf("%d,%d,%d,%d", winCols, winRows, winPixelsW, winPixelsH),
+		"--place", fmt.Sprintf("%dx%d@%dx%d", placement.cols, placement.rows, placement.left, placement.top),
+		"--transfer-mode=file",
+		placement.path,
+	}
 }
 
 type kittyFrameWriter struct {
@@ -265,6 +359,25 @@ func resolveMediaPathsWithClient(c *client.Client, mediaIDs string, preferOrigin
 	return resolved
 }
 
+func resolvePostMediaPathsWithClient(c *client.Client, postID int32, postType, mediaIDs string, preferOriginal bool) []resolvedMedia {
+	if resolved := resolveMediaPathsWithClient(c, mediaIDs, preferOriginal); len(resolved) > 0 {
+		return resolved
+	}
+	if postType != "image" || postID <= 0 {
+		return nil
+	}
+
+	id := strconv.Itoa(int(postID))
+	path := resolveMediaPath(id, preferOriginal)
+	if path == "" && c != nil {
+		path = fetchAndCacheMediaByPID(c, id, preferOriginal)
+	}
+	if path == "" {
+		return nil
+	}
+	return []resolvedMedia{{id: id, path: path}}
+}
+
 func parseMediaIDs(mediaIDs string) []string {
 	parts := strings.Split(mediaIDs, ",")
 	ids := make([]string, 0, len(parts))
@@ -309,6 +422,21 @@ func resolveMediaPath(id string, preferOriginal bool) string {
 	return ""
 }
 
+func clearMediaPathCache(id string) {
+	mediaPathCache.Delete(id + "|true")
+	mediaPathCache.Delete(id + "|false")
+}
+
+func mediaImageIDForPath(path string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(path))
+	id := h.Sum32()
+	if id == 0 {
+		return 1
+	}
+	return id
+}
+
 func fetchAndCacheMedia(c *client.Client, id string, preferOriginal bool) string {
 	if c == nil || strings.TrimSpace(id) == "" {
 		return ""
@@ -335,9 +463,41 @@ func fetchAndCacheMedia(c *client.Client, id string, preferOriginal bool) string
 
 	for _, target := range targets {
 		if path := fetchMediaToDir(c, id, target.url, target.dir); path != "" {
-			mediaPathCache.Store(id+"|true", "")
-			mediaPathCache.Store(id+"|false", "")
+			clearMediaPathCache(id)
 			return resolveMediaPath(id, preferOriginal)
+		}
+	}
+	return ""
+}
+
+func fetchAndCacheMediaByPID(c *client.Client, pid string, preferOriginal bool) string {
+	if c == nil || strings.TrimSpace(pid) == "" {
+		return ""
+	}
+
+	targets := []struct {
+		url string
+		dir string
+	}{
+		{
+			url: "https://treehole.pku.edu.cn/chapi/api/v3/media/getImageBinary?pid=" + pid,
+			dir: filepath.Join(tuiProjectRoot(), "data/images"),
+		},
+	}
+	if !preferOriginal {
+		targets = append(targets, struct {
+			url string
+			dir string
+		}{
+			url: "https://treehole.pku.edu.cn/chapi/api/v3/media/getImageBinary?pid=" + pid,
+			dir: filepath.Join(tuiProjectRoot(), "data/thumbnails"),
+		})
+	}
+
+	for _, target := range targets {
+		if path := fetchMediaToDir(c, pid, target.url, target.dir); path != "" {
+			clearMediaPathCache(pid)
+			return resolveMediaPath(pid, preferOriginal)
 		}
 	}
 	return ""

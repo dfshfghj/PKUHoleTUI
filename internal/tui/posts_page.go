@@ -52,7 +52,6 @@ type PostsPageModel struct {
 	SessionMode  SessionMode
 	CanWrite     bool
 	StatusText   string
-	ImagePreview bool
 	ImageClient  *client.Client
 }
 
@@ -268,11 +267,8 @@ func (p PostsPageModel) buildDetailBodyContent(contentWidth int) (string, []imag
 		return "", nil
 	}
 	textWidth := p.detailBodyTextWidth(contentWidth)
-	lines, placements := p.postDetailLines(*p.CurrentPost, textWidth)
-	for i := range placements {
-		placements[i].left += 4
-	}
-	return vPostTextStyle.Render(strings.Join(lines, "\n")), placements
+	lines := p.postDetailLines(*p.CurrentPost, textWidth)
+	return vPostTextStyle.Render(strings.Join(lines, "\n")), nil
 }
 
 func (p PostsPageModel) buildPostListContent(contentWidth int) (string, []imagePlacement) {
@@ -296,8 +292,7 @@ func (p PostsPageModel) buildPostListContent(contentWidth int) (string, []imageP
 		selected := i == p.SelectedPostIdx
 		lineWidth := p.listLineTextWidth(contentWidth, selected)
 		headerLines := p.postHeaderLines(post, lineWidth)
-		textLines, imagePlacements := p.postListTextLines(post, lineWidth, lineNo+len(headerLines))
-		placements = append(placements, imagePlacements...)
+		textLines := p.postListTextLines(post, lineWidth)
 
 		if selected {
 			for _, line := range headerLines {
@@ -621,7 +616,7 @@ func (p *PostsPageModel) postRenderedLinesAt(index int) int {
 	selected := index == p.SelectedPostIdx
 	lineWidth := p.listLineTextWidth(p.currentListContentWidth(), selected)
 	headerLines := len(p.postHeaderLines(post, lineWidth))
-	textLines, _ := p.postListTextLines(post, lineWidth, 0)
+	textLines := p.postListTextLines(post, lineWidth)
 	textLineCount := len(textLines)
 	return headerLines + textLineCount
 }
@@ -856,7 +851,7 @@ func (p *PostsPageModel) detailBodyLineCount() int {
 	if p.PostBodyViewport != nil && p.PostBodyViewport.Width > 0 {
 		width = p.PostBodyViewport.Width
 	}
-	lines, _ := p.postDetailLines(*p.CurrentPost, p.detailBodyTextWidth(width))
+	lines := p.postDetailLines(*p.CurrentPost, p.detailBodyTextWidth(width))
 	return len(lines)
 }
 
@@ -903,7 +898,7 @@ func (p PostsPageModel) currentListContentWidth() int {
 	return 20
 }
 
-func (p PostsPageModel) postListTextLines(post models.Post, width, topOffset int) ([]string, []imagePlacement) {
+func (p PostsPageModel) postListTextLines(post models.Post, width int) []string {
 	text := normalizeRenderedText(post.Text)
 	lines := p.wrapPlainTextLines(text, width)
 	if strings.TrimSpace(text) == "" {
@@ -911,25 +906,15 @@ func (p PostsPageModel) postListTextLines(post models.Post, width, topOffset int
 	}
 	if !p.hasPostMedia(post) {
 		if len(lines) == 0 {
-			return []string{""}, nil
+			return []string{""}
 		}
-		return lines, nil
+		return lines
 	}
 
-	images := resolveMediaPathsWithClient(p.ImageClient, post.MediaIds, false)
-	if !p.ImagePreview || len(images) == 0 {
-		return p.wrapPlainTextLines(p.postDisplayText(post), width), nil
-	}
-
-	layout := buildImageLayout(images, width, listImageCellSize, 2, topOffset+len(lines))
-	lines = append(lines, layout.lines...)
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-	return lines, layout.placements
+	return p.wrapPlainTextLines(p.postDisplayText(post), width)
 }
 
-func (p PostsPageModel) postDetailLines(post models.Post, width int) ([]string, []imagePlacement) {
+func (p PostsPageModel) postDetailLines(post models.Post, width int) []string {
 	text := normalizeRenderedText(post.Text)
 	lines := p.wrapPlainTextLines(text, width)
 	if strings.TrimSpace(text) == "" {
@@ -937,22 +922,12 @@ func (p PostsPageModel) postDetailLines(post models.Post, width int) ([]string, 
 	}
 	if !p.hasPostMedia(post) {
 		if len(lines) == 0 {
-			return []string{""}, nil
+			return []string{""}
 		}
-		return lines, nil
+		return lines
 	}
 
-	images := resolveMediaPathsWithClient(p.ImageClient, post.MediaIds, true)
-	if !p.ImagePreview || len(images) == 0 {
-		return p.wrapPlainTextLines(p.postDisplayText(post), width), nil
-	}
-
-	layout := buildImageLayout(images, width, detailImageCellSize, 0, len(lines))
-	lines = append(lines, layout.lines...)
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-	return lines, layout.placements
+	return p.wrapPlainTextLines(p.postDisplayText(post), width)
 }
 
 func (p PostsPageModel) postDisplayText(post models.Post) string {

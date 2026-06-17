@@ -52,6 +52,8 @@ func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
 		body, placements = m.renderPanelScreen(width, height, m.renderConfigPanelContent)
 	case DialogLogs:
 		body, placements = m.renderPanelScreen(width, height, m.renderLogsPanelContent)
+	case DialogImage:
+		body, placements = m.renderImagePanelScreen(width, height)
 	default:
 		base, p := m.renderMainLayout(width, height)
 		placements = p
@@ -164,6 +166,44 @@ func (m Model) renderConfigPanelContent(panelW, panelH int) string {
 
 func (m Model) renderLogsPanelContent(panelW, panelH int) string {
 	return m.LogsDialog.View(panelW, panelH)
+}
+
+func (m Model) renderImagePanelScreen(width, height int) (string, []imagePlacement) {
+	mainModel := m
+	mainModel.Dialog = DialogNone
+	main, _ := mainModel.renderMainLayout(width, height)
+
+	panelW := width * 4 / 5
+	panelH := height * 4 / 5
+	if panelW < 40 {
+		panelW = 40
+	}
+	if panelH < 22 {
+		panelH = 22
+	}
+	if panelW > width {
+		panelW = width
+	}
+	if panelH > height {
+		panelH = height
+	}
+
+	panelX := (width - panelW) / 2
+	panelY := (height - panelH) / 2
+
+	content, placements := m.ImageDialog.View(panelW, panelH, m.Images != nil && m.Images.Enabled())
+	for i := range placements {
+		placements[i].left += panelX + 3
+		placements[i].top += panelY + 1
+		placements[i].winCols = width
+		placements[i].winRows = height
+	}
+	panel := panelContentStyle.Width(panelW).MaxHeight(panelH).Render(content)
+
+	baseLayer := lipgloss2.NewLayer(main)
+	panelLayer := lipgloss2.NewLayer(panel).X(panelX).Y(panelY).Z(1)
+	body := lipgloss2.NewCompositor(baseLayer, panelLayer).Render()
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
 }
 
 func (m Model) overlayToast(screenWidth int, body string) string {
@@ -392,6 +432,8 @@ func (m Model) dialogStatusSummary() string {
 		return "c: 配置编辑 | Enter: 保存 | Esc: 关闭"
 	case DialogLogs:
 		return "l: 运行日志 | Esc: 关闭"
+	case DialogImage:
+		return "o: 图片预览 | Left/Right: 切换 | Esc: 关闭"
 	case DialogHelp:
 		return "当前快捷键"
 	case DialogSessionPrompt:
@@ -591,6 +633,11 @@ func (m Model) helpItems() []helpItem {
 	items := []helpItem{{key: "Esc", desc: "关闭帮助"}}
 
 	switch {
+	case m.Dialog == DialogImage:
+		items = append(items,
+			helpItem{key: "←→", desc: "切换图片"},
+			helpItem{key: "Esc", desc: "关闭图片"},
+		)
 	case m.Page == PageHome:
 		items = append(items,
 			helpItem{key: "Tab", desc: "切到帖子页"},
@@ -613,6 +660,7 @@ func (m Model) helpItems() []helpItem {
 			helpItem{key: "Tab", desc: "切换正文/评论"},
 			helpItem{key: "↑↓", desc: "滚动当前区域"},
 			helpItem{key: "PgUp/PgDn", desc: "快速翻页"},
+			helpItem{key: "o", desc: "打开图片"},
 			helpItem{key: "s", desc: "切换排序"},
 			helpItem{key: "r", desc: "刷新详情"},
 		)
@@ -630,6 +678,7 @@ func (m Model) helpItems() []helpItem {
 			helpItem{key: "↑↓", desc: "选择帖子"},
 			helpItem{key: "PgUp/PgDn", desc: "快速翻页"},
 			helpItem{key: "Enter", desc: "打开详情"},
+			helpItem{key: "o", desc: "打开图片"},
 			helpItem{key: "/", desc: "搜索帖子"},
 			helpItem{key: "r", desc: "刷新列表"},
 			helpItem{key: "c", desc: "打开配置"},

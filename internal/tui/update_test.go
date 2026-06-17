@@ -953,6 +953,114 @@ func TestHandleLogsKeyRefresh(t *testing.T) {
 	}
 }
 
+func TestHandlePostsKeyOpenImagePanelFromList(t *testing.T) {
+	const mediaID = "test-list-image-open"
+	writeTestMediaFile(t, mediaID)
+
+	m := newTestModel()
+	m.Posts.PostList = []models.Post{
+		{Pid: 101, Text: "带图帖子", MediaIds: mediaID},
+	}
+
+	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	if result.Dialog != DialogImage {
+		t.Fatalf("dialog = %v, want image dialog", result.Dialog)
+	}
+	if !result.ImageDialog.HasImages() {
+		t.Fatal("image dialog should have images")
+	}
+	current := result.ImageDialog.Current()
+	if current == nil || current.id != mediaID {
+		t.Fatalf("current image = %#v, want id %q", current, mediaID)
+	}
+}
+
+func TestHandlePostsKeyOpenImagePanelFromImageTypePostWithoutMediaIDs(t *testing.T) {
+	const pid = "8319759"
+	writeTestMediaFile(t, pid)
+
+	m := newTestModel()
+	m.Posts.PostList = []models.Post{
+		{Pid: 8319759, Type: "image", Text: "走 pid 的图片帖"},
+	}
+
+	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+
+	if result.Dialog != DialogImage {
+		t.Fatalf("dialog = %v, want image dialog", result.Dialog)
+	}
+	current := result.ImageDialog.Current()
+	if current == nil || current.id != pid {
+		t.Fatalf("current image = %#v, want pid %q", current, pid)
+	}
+}
+
+func TestHandleImageDialogKeyCyclesImages(t *testing.T) {
+	const firstID = "test-detail-image-1"
+	const secondID = "test-detail-image-2"
+	writeTestMediaFile(t, firstID)
+	writeTestMediaFile(t, secondID)
+
+	m := newTestModel()
+	m.Posts.ShowPostDetail = true
+	m.Posts.CurrentPost = &models.Post{Pid: 42, Text: "正文"}
+	m.Posts.CommentList = []models.Comment{
+		{Cid: 1, Text: "带图评论", MediaIds: firstID + "," + secondID},
+	}
+
+	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	if result.Dialog != DialogImage {
+		t.Fatalf("dialog = %v, want image dialog", result.Dialog)
+	}
+	if got := result.ImageDialog.Current(); got == nil || got.id != firstID {
+		t.Fatalf("initial image = %#v, want first image", got)
+	}
+
+	result, _ = result.handleImageDialogKey(tea.KeyMsg{Type: tea.KeyRight})
+	if got := result.ImageDialog.Current(); got == nil || got.id != secondID {
+		t.Fatalf("after right image = %#v, want second image", got)
+	}
+
+	result, _ = result.handleImageDialogKey(tea.KeyMsg{Type: tea.KeyLeft})
+	if got := result.ImageDialog.Current(); got == nil || got.id != firstID {
+		t.Fatalf("after left image = %#v, want first image", got)
+	}
+}
+
+func TestHandlePostsKeyOpenImagePanelFallsBackToPostWhenCommentImagesUnresolved(t *testing.T) {
+	const postPID = "8319760"
+	writeTestMediaFile(t, postPID)
+
+	m := newTestModel()
+	m.Posts.ShowPostDetail = true
+	m.Posts.CurrentPost = &models.Post{Pid: 8319760, Type: "image", Text: "帖子图"}
+	m.Posts.CommentList = []models.Comment{
+		{Cid: 1, Pid: 8319760, Text: "评论里也写了图", MediaIds: "missing-comment-image"},
+	}
+
+	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	if result.Dialog != DialogImage {
+		t.Fatalf("dialog = %v, want image dialog", result.Dialog)
+	}
+	if got := result.ImageDialog.Current(); got == nil || got.id != postPID {
+		t.Fatalf("current image = %#v, want post pid image", got)
+	}
+}
+
+func TestImageDialogViewUsesForegroundZIndex(t *testing.T) {
+	dialog := NewImageDialog()
+	dialog.Open("图片预览", []resolvedMedia{{id: "1", path: "/tmp/test.jpg"}})
+
+	_, placements := dialog.View(80, 30, true)
+	if len(placements) != 1 {
+		t.Fatalf("placements = %d, want 1", len(placements))
+	}
+	if placements[0].z <= 0 {
+		t.Fatalf("placement z = %d, want positive foreground layer", placements[0].z)
+	}
+}
+
 func TestHandleDialogEscClose(t *testing.T) {
 	m := newTestModel()
 	m.Dialog = DialogConfig

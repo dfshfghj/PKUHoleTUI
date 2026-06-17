@@ -22,6 +22,26 @@ func projectRoot() string {
 	return filepath.Join(filepath.Dir(filename), "../..")
 }
 
+func writeTestMediaFile(t *testing.T, id string) string {
+	t.Helper()
+
+	dir := filepath.Join(projectRoot(), "data", "images")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("mkdir media dir: %v", err)
+	}
+
+	path := filepath.Join(dir, id+".jpg")
+	if err := os.WriteFile(path, []byte("test-image"), 0644); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+	clearMediaPathCache(id)
+	t.Cleanup(func() {
+		_ = os.Remove(path)
+		clearMediaPathCache(id)
+	})
+	return path
+}
+
 // stripANSI removes ANSI escape sequences from a string.
 func stripANSI(s string) string {
 	return stripANSISequences(s)
@@ -1485,9 +1505,8 @@ func TestViewPostDetailCommentShowsImagePlaceholder(t *testing.T) {
 	}
 }
 
-func TestBuildPostListContentUsesThumbnailBlocksWhenPreviewEnabled(t *testing.T) {
+func TestBuildPostListContentKeepsImagePlaceholder(t *testing.T) {
 	m := newTestModel()
-	m.Posts.ImagePreview = true
 	m.Posts.PostList = []models.Post{
 		{Pid: 1, Text: "带图帖子", Timestamp: 1000, MediaIds: "30518"},
 	}
@@ -1498,23 +1517,16 @@ func TestBuildPostListContentUsesThumbnailBlocksWhenPreviewEnabled(t *testing.T)
 
 	contentWidth := m.Posts.currentListContentWidth()
 	content, placements := m.Posts.buildPostListContent(contentWidth)
-	if strings.Contains(stripANSI(content), "[图片]") {
-		t.Fatalf("thumbnail preview should replace placeholder, got:\n%s", stripANSI(content))
+	if !strings.Contains(stripANSI(content), "[图片]") {
+		t.Fatalf("image placeholder should remain in list, got:\n%s", stripANSI(content))
 	}
-	if len(placements) != 1 {
-		t.Fatalf("placements = %d, want 1", len(placements))
-	}
-	if placements[0].cols != listImageCellSize || placements[0].rows != listImageCellSize {
-		t.Fatalf("thumbnail placement size = %dx%d, want %dx%d", placements[0].cols, placements[0].rows, listImageCellSize, listImageCellSize)
-	}
-	if got := m.Posts.postRenderedLinesAt(0); got < 6 {
-		t.Fatalf("postRenderedLinesAt(0) = %d, want image block to contribute rows", got)
+	if len(placements) != 0 {
+		t.Fatalf("placements = %d, want 0", len(placements))
 	}
 }
 
-func TestBuildDetailBodyContentPlacesMultipleImagesHorizontally(t *testing.T) {
+func TestBuildDetailBodyContentKeepsImagePlaceholder(t *testing.T) {
 	m := newTestModel()
-	m.Posts.ImagePreview = true
 	m.Posts.ShowPostDetail = true
 	m.Posts.CurrentPost = &models.Post{
 		Pid: 42, Text: "详情图", Timestamp: 1000, MediaIds: "30518,30669",
@@ -1524,17 +1536,41 @@ func TestBuildDetailBodyContentPlacesMultipleImagesHorizontally(t *testing.T) {
 	m.syncPostsPage()
 
 	content, placements := m.Posts.buildDetailBodyContent(m.Posts.PostBodyViewport.Width)
-	if strings.Contains(stripANSI(content), "[图片]") {
-		t.Fatalf("detail preview should replace placeholder, got:\n%s", stripANSI(content))
+	if !strings.Contains(stripANSI(content), "[图片]") {
+		t.Fatalf("detail placeholder should remain, got:\n%s", stripANSI(content))
 	}
-	if len(placements) != 2 {
-		t.Fatalf("placements = %d, want 2", len(placements))
+	if len(placements) != 0 {
+		t.Fatalf("placements = %d, want 0", len(placements))
 	}
-	if placements[0].top != placements[1].top {
-		t.Fatalf("placements should share the same row for horizontal layout: %+v", placements)
+}
+
+func TestResolveMediaPathFindsFileAfterClearingNegativeCache(t *testing.T) {
+	const mediaID = "test-negative-cache-clear"
+	clearMediaPathCache(mediaID)
+
+	if got := resolveMediaPath(mediaID, true); got != "" {
+		t.Fatalf("initial resolve = %q, want empty", got)
 	}
-	if placements[1].left <= placements[0].left {
-		t.Fatalf("second placement should be to the right of the first: %+v", placements)
+
+	dir := filepath.Join(projectRoot(), "data", "images")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("mkdir media dir: %v", err)
+	}
+	path := filepath.Join(dir, mediaID+".jpg")
+	if err := os.WriteFile(path, []byte("test-image"), 0644); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(path)
+		clearMediaPathCache(mediaID)
+	})
+	if got := resolveMediaPath(mediaID, true); got != "" {
+		t.Fatalf("stale cached resolve = %q, want empty before cache clear", got)
+	}
+
+	clearMediaPathCache(mediaID)
+	if got, want := resolveMediaPath(mediaID, true), path; got != want {
+		t.Fatalf("resolve after cache clear = %q, want %q", got, want)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -334,6 +335,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m.handleConfigKey(msg)
 		case DialogLogs:
 			return m.handleLogsKey(msg)
+		case DialogImage:
+			return m.handleImageDialogKey(msg)
 		case DialogHelp:
 			return m, nil
 		case DialogSessionPrompt:
@@ -447,6 +450,8 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 				m.Posts.CommentListError = ""
 				return m, loadPostDetailCmd(m.Provider, m.Posts.CurrentPost.Pid, m.Posts.CommentSortAsc)
 			}
+		case "o":
+			return m.openCurrentImagePanel()
 		case "p":
 			if m.Posts.CurrentPost != nil {
 				if !m.Posts.CanWrite {
@@ -532,6 +537,8 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.Posts.resetList()
 			return m, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, m.Posts.ActiveTagID)
 		}
+	case "o":
+		return m.openCurrentImagePanel()
 	case "/":
 		m.Posts.Searching = true
 		m.Posts.PostsMode = PostsModeSearchInput
@@ -662,6 +669,19 @@ func (m Model) handleLogsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m Model) handleImageDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.Dialog = DialogNone
+		m.ImageDialog.Clear()
+	case "left":
+		m.ImageDialog.Prev()
+	case "right":
+		m.ImageDialog.Next()
+	}
+	return m, nil
+}
+
 func (m Model) handleSessionDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if msg.Type == tea.KeyEscape {
 		m.Dialog = DialogNone
@@ -684,6 +704,50 @@ func (m Model) handleSessionDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	}
 	m.SessionDialog.Update(msg)
 	return m, nil
+}
+
+func (m Model) openCurrentImagePanel() (Model, tea.Cmd) {
+	title, items := m.currentImageSelection()
+	if len(items) == 0 {
+		return m, m.showToast("当前选中内容没有可显示的图片")
+	}
+	m.ImageDialog.Open(title, items)
+	m.Dialog = DialogImage
+	return m, nil
+}
+
+func (m Model) currentImageSelection() (string, []resolvedMedia) {
+	if m.Page != PagePosts {
+		return "", nil
+	}
+	if m.Posts.ShowPostDetail {
+		if comment := m.Posts.SelectedComment(); comment != nil && strings.TrimSpace(comment.MediaIds) != "" {
+			title := fmt.Sprintf("评论图片 %d/%d", m.Posts.SelectedCommentIdx+1, len(m.Posts.CommentList))
+			items := resolveMediaPathsWithClient(m.Client, comment.MediaIds, true)
+			if len(items) > 0 {
+				return title, items
+			}
+		}
+		if m.Posts.CurrentPost != nil {
+			title := fmt.Sprintf("帖子 #%d", m.Posts.CurrentPost.Pid)
+			items := resolvePostMediaPathsWithClient(
+				m.Client,
+				m.Posts.CurrentPost.Pid,
+				m.Posts.CurrentPost.Type,
+				m.Posts.CurrentPost.MediaIds,
+				true,
+			)
+			return title, items
+		}
+		return "", nil
+	}
+
+	post := m.Posts.SelectedPost()
+	if post == nil {
+		return "", nil
+	}
+	title := fmt.Sprintf("帖子 #%d", post.Pid)
+	return title, resolvePostMediaPathsWithClient(m.Client, post.Pid, post.Type, post.MediaIds, true)
 }
 
 func (m Model) handleAuthChallengeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
