@@ -44,7 +44,7 @@ func (s *stubPostsProvider) SearchPosts(keyword string, cursor, limit, label int
 func (s *stubPostsProvider) ListTags() ([]models.Tag, error) { return s.listTags, nil }
 
 func (s *stubPostsProvider) GetCourseTable() ([]models.CourseScheduleRow, error) {
-	return []models.CourseScheduleRow{{TimeNum: "第一节", Mon: models.CourseDay{CourseName: "数学"}}}, nil
+	return []models.CourseScheduleRow{{TimeNum: "1", Mon: models.CourseDay{CourseName: "数学"}}}, nil
 }
 
 func (s *stubPostsProvider) GetCourseScores() (*models.ScoreSummary, error) {

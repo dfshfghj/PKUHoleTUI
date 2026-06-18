@@ -57,7 +57,7 @@ func (p CourseSchedulePageModel) View(width, height int) string {
 		{"六", func(r models.CourseScheduleRow) string { return r.Sat.CourseName }},
 		{"日", func(r models.CourseScheduleRow) string { return r.Sun.CourseName }},
 	}
-	timeWidth := 6
+	timeWidth := 4
 	cellWidth := maxInt(6, (bodyWidth-timeWidth-len(days))/len(days))
 	b.WriteString(vStatLabelStyle.Width(timeWidth).Render("节次"))
 	for _, day := range days {

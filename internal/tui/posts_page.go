@@ -1097,6 +1097,7 @@ func (p PostsPageModel) postHeaderLines(post models.Post, width int) []string {
 
 func (p PostsPageModel) wrapPlainTextLines(text string, width int) []string {
 	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
 	rawLines := strings.Split(normalized, "\n")
 	if len(rawLines) == 0 {
 		return []string{""}

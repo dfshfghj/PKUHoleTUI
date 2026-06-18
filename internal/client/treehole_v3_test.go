@@ -218,7 +218,7 @@ func TestGetCourseTableV2CleansCourseNames(t *testing.T) {
 	if capture.rt.last.URL.Path != "/chapi/api/getCoursetable_v2" {
 		t.Fatalf("course table path = %q", capture.rt.last.URL.Path)
 	}
-	if len(rows) != 1 || rows[0].Mon.CourseName != "量子力学(主)" {
+	if len(rows) != 1 || rows[0].TimeNum != "1" || rows[0].Mon.CourseName != "量子力学(主)" {
 		t.Fatalf("rows = %+v", rows)
 	}
 }

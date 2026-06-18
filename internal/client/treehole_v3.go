@@ -609,7 +609,7 @@ func (c *Client) applyV3Headers(req *http.Request, write bool) {
 
 func (d courseScheduleDTO) toModel() models.CourseScheduleRow {
 	return models.CourseScheduleRow{
-		TimeNum: d.TimeNum,
+		TimeNum: parseTimeNum(d.TimeNum),
 		Mon:     d.Mon.toModel(),
 		Tue:     d.Tue.toModel(),
 		Wed:     d.Wed.toModel(),
@@ -629,6 +629,49 @@ func (d courseDayDTO) toModel() models.CourseDay {
 }
 
 var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
+
+var timeNumPattern = regexp.MustCompile(`第(.+?)节`)
+
+var chineseDigit = map[rune]int{
+	'一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+	'六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+}
+
+func parseTimeNum(raw string) string {
+	m := timeNumPattern.FindStringSubmatch(raw)
+	if len(m) < 2 {
+		return raw
+	}
+	inner := m[1]
+	if n, err := strconv.Atoi(inner); err == nil {
+		return strconv.Itoa(n)
+	}
+	runes := []rune(inner)
+	if len(runes) == 1 {
+		if v, ok := chineseDigit[runes[0]]; ok {
+			return strconv.Itoa(v)
+		}
+		return raw
+	}
+	if len(runes) == 2 && runes[0] == '十' {
+		if v, ok := chineseDigit[runes[1]]; ok {
+			return strconv.Itoa(10 + v)
+		}
+	}
+	if len(runes) == 2 && runes[1] == '十' {
+		if v, ok := chineseDigit[runes[0]]; ok {
+			return strconv.Itoa(v * 10)
+		}
+	}
+	if len(runes) == 3 && runes[1] == '十' {
+		a, ok1 := chineseDigit[runes[0]]
+		b, ok2 := chineseDigit[runes[2]]
+		if ok1 && ok2 {
+			return strconv.Itoa(a*10 + b)
+		}
+	}
+	return raw
+}
 
 func firstCourseTitle(raw string) string {
 	cleaned := cleanCourseText(raw)
