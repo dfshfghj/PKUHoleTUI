@@ -1753,8 +1753,9 @@ func TestBuildCommentContentReverseOrder(t *testing.T) {
 
 func TestViewConfigDialogStrippedLines(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogConfig
-	m.ConfigDialog = NewConfigDialog(&config.Config{
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionConfig)
+	m.ToolsDialog.Config = NewConfigDialog(&config.Config{
 		Username:  "testuser",
 		Password:  "secret",
 		SecretKey: "KEY123",
@@ -1766,16 +1767,15 @@ func TestViewConfigDialogStrippedLines(t *testing.T) {
 	lines := visibleLines(output)
 
 	allText := strings.Join(lines, " ")
-	expectedContent := []string{"配置管理", "账号/认证", "用户名", "密码", "SecretKey"}
+	expectedContent := []string{"配置", `"username"`, `"password"`, `"secret_key"`}
 	for _, want := range expectedContent {
 		if !strings.Contains(allText, want) {
 			t.Errorf("Missing expected content: %q", want)
 		}
 	}
 
-	// Password should be masked
-	if strings.Contains(allText, "secret") {
-		t.Error("Plaintext password found in output")
+	if !strings.Contains(allText, "secret") {
+		t.Error("JSON editor should show editable password value")
 	}
 
 	t.Logf("Config dialog: %d visible lines", len(lines))
@@ -1961,7 +1961,8 @@ func TestViewStrippedOutputNotEmpty(t *testing.T) {
 		}()},
 		{"config_dialog", func() Model {
 			m := newTestModel()
-			m.Dialog = DialogConfig
+			m.Dialog = DialogTools
+			m.ToolsDialog.Switch(ToolsSectionConfig)
 			return m
 		}()},
 		{"help_dialog", func() Model {
@@ -1971,8 +1972,9 @@ func TestViewStrippedOutputNotEmpty(t *testing.T) {
 		}()},
 		{"logs_dialog", func() Model {
 			m := newTestModel()
-			m.Dialog = DialogLogs
-			m.LogsDialog.SetLines([]string{"log line"})
+			m.Dialog = DialogTools
+			m.ToolsDialog.Switch(ToolsSectionLogs)
+			m.ToolsDialog.Logs.SetLines([]string{"log line"})
 			return m
 		}()},
 	}

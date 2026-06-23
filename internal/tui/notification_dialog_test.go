@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestNotificationDialogSwitchesTypesAndSelectsMessages(t *testing.T) {
+func TestNotificationDialogSelectsMessagesAndAcceptsFlattenedType(t *testing.T) {
 	dialog := NewNotificationDialog()
 	dialog.SetNotifications(models.NotificationTypeInteractive, []models.Notification{
 		{ID: 1, Content: "first"},
@@ -22,10 +22,7 @@ func TestNotificationDialogSwitchesTypesAndSelectsMessages(t *testing.T) {
 		t.Fatalf("selected = %+v, want id 2", got)
 	}
 
-	changed := dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
-	if !changed {
-		t.Fatal("switching message type should request a reload")
-	}
+	dialog.SetMessageType(models.NotificationTypeSystem)
 	if dialog.MessageType() != models.NotificationTypeSystem {
 		t.Fatalf("message type = %q", dialog.MessageType())
 	}
@@ -38,9 +35,14 @@ func TestNotificationDialogMarksReadAndRendersTypeDifference(t *testing.T) {
 	}, 1)
 
 	output := stripANSI(dialog.View(80, 30))
-	for _, want := range []string{"通知中心", "互动消息", "系统消息", "reply text", "●", "#42"} {
+	for _, want := range []string{"reply text", "●", "#42"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+	for _, duplicate := range []string{"通知中心", "互动消息", "系统消息"} {
+		if strings.Contains(output, duplicate) {
+			t.Fatalf("notification body should not repeat flattened header %q:\n%s", duplicate, output)
 		}
 	}
 	if strings.Contains(output, "│ 未读") || strings.Contains(output, "│ 已读") {

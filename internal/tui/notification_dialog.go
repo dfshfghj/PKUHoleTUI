@@ -33,6 +33,16 @@ func (m *NotificationDialogModel) MessageType() models.NotificationType {
 	return m.messageType
 }
 
+func (m *NotificationDialogModel) SetMessageType(messageType models.NotificationType) {
+	if m.messageType == messageType {
+		return
+	}
+	m.messageType = messageType
+	m.selected = 0
+	m.loading = true
+	m.lastErr = ""
+}
+
 func (m *NotificationDialogModel) SetLoading(loading bool) {
 	m.loading = loading
 	if loading {
@@ -117,20 +127,6 @@ func (m *NotificationDialogModel) Update(msg tea.KeyMsg) bool {
 		m.selected = maxInt(0, m.selected-10)
 	case "pgdown":
 		m.selected = minInt(maxInt(0, len(m.items)-1), m.selected+10)
-	case "i":
-		if m.messageType != models.NotificationTypeInteractive {
-			m.messageType = models.NotificationTypeInteractive
-			m.selected = 0
-			m.loading = true
-			return true
-		}
-	case "s":
-		if m.messageType != models.NotificationTypeSystem {
-			m.messageType = models.NotificationTypeSystem
-			m.selected = 0
-			m.loading = true
-			return true
-		}
 	}
 	return false
 }
@@ -138,11 +134,6 @@ func (m *NotificationDialogModel) Update(msg tea.KeyMsg) bool {
 func (m NotificationDialogModel) View(width, height int) string {
 	var b strings.Builder
 	innerWidth := maxInt(24, width-panelContentStyle.GetHorizontalFrameSize())
-
-	b.WriteString(vDialogTitleStyle.Render("通知中心"))
-	b.WriteString("\n\n")
-	b.WriteString(m.renderTabs())
-	b.WriteString("\n\n")
 
 	switch {
 	case m.loading:
@@ -154,7 +145,7 @@ func (m NotificationDialogModel) View(width, height int) string {
 		for i := range m.items {
 			renderedItems[i] = m.renderItem(m.items[i], i == m.selected, innerWidth)
 		}
-		availableHeight := maxInt(3, height-11)
+		availableHeight := maxInt(1, height-3)
 		start, end := notificationVisibleRange(m.selected, renderedItems, availableHeight)
 		for i := start; i < end; i++ {
 			b.WriteString(renderedItems[i])
@@ -175,24 +166,11 @@ func (m NotificationDialogModel) View(width, height int) string {
 		b.WriteString(vErrorStyle.Render("错误: " + m.lastErr))
 	}
 
-	b.WriteString("\n\n")
-	help := "i: 互动 | s: 系统 | ↑↓/PgUp/PgDn: 选择 | a: 全部已读 | r: 刷新 | Esc: 关闭"
+	help := "↑↓/PgUp/PgDn: 选择 | a: 全部已读 | r: 刷新 | Esc: 关闭"
 	if m.messageType == models.NotificationTypeInteractive {
-		help = "i: 互动 | s: 系统 | ↑↓/PgUp/PgDn: 选择 | Enter: 当前已读 | a: 全部已读 | r: 刷新 | Esc: 关闭"
+		help = "↑↓/PgUp/PgDn: 选择 | Enter: 当前已读 | a: 全部已读 | r: 刷新 | Esc: 关闭"
 	}
-	b.WriteString(vDialogHelpStyle.Render(help))
-	return b.String()
-}
-
-func (m NotificationDialogModel) renderTabs() string {
-	interactive := vStatLabelStyle.Render("互动消息 (I)")
-	system := vStatLabelStyle.Render("系统消息 (S)")
-	if m.messageType == models.NotificationTypeInteractive {
-		interactive = vStatValueStyle.Render("互动消息 (I)")
-	} else {
-		system = vStatValueStyle.Render("系统消息 (S)")
-	}
-	return interactive + "  " + system
+	return renderToolsBodyWithFooter(b.String(), help, width, height)
 }
 
 func (m NotificationDialogModel) renderItem(item models.Notification, selected bool, width int) string {
@@ -221,6 +199,8 @@ func (m NotificationDialogModel) renderItem(item models.Notification, selected b
 	style := lipgloss.NewStyle().
 		Width(maxInt(12, width-2)).
 		Padding(0, 1).
+		Background(colorBg).
+		ColorWhitespace(true).
 		BorderLeft(true).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(colorBorder)

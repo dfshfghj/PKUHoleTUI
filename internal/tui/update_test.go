@@ -36,16 +36,14 @@ func newTestModel() Model {
 			Password:  "testpass",
 			SecretKey: "testkey",
 		},
-		ConfigDialog: NewConfigDialog(&config.Config{
+		ToolsDialog: NewToolsDialog(&config.Config{
 			Username:  "testuser",
 			Password:  "testpass",
 			SecretKey: "testkey",
 		}),
-		LogsDialog:         NewLogsDialog(),
-		AuthDialog:         NewAuthChallengeDialog(SessionState{}),
-		Composer:           NewComposerDialog(),
-		TagsDialog:         NewTagsDialog(),
-		NotificationDialog: NewNotificationDialog(),
+		AuthDialog: NewAuthChallengeDialog(SessionState{}),
+		Composer:   NewComposerDialog(),
+		TagsDialog: NewTagsDialog(),
 	}
 }
 
@@ -311,11 +309,8 @@ func TestHandleKeyOpenConfig(t *testing.T) {
 	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
 	m = result
 
-	if m.Dialog != DialogConfig {
-		t.Errorf("Dialog = %v, want DialogConfig", m.Dialog)
-	}
-	if m.ConfigDialog.FocusIndex() != 0 {
-		t.Errorf("ConfigDialog.FocusIndex = %d, want 0", m.ConfigDialog.FocusIndex())
+	if m.Dialog != DialogTools || m.ToolsDialog.Section() != ToolsSectionConfig {
+		t.Errorf("dialog/section = %v/%v, want tools/config", m.Dialog, m.ToolsDialog.Section())
 	}
 	if cmd == nil {
 		t.Error("Opening config should trigger loadConfigCmd")
@@ -328,10 +323,10 @@ func TestHandleKeyOpenLogs(t *testing.T) {
 	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
 	m = result
 
-	if m.Dialog != DialogLogs {
-		t.Errorf("Dialog = %v, want DialogLogs", m.Dialog)
+	if m.Dialog != DialogTools || m.ToolsDialog.Section() != ToolsSectionLogs {
+		t.Errorf("dialog/section = %v/%v, want tools/logs", m.Dialog, m.ToolsDialog.Section())
 	}
-	if !m.LogsDialog.Loading() {
+	if !m.ToolsDialog.Logs.Loading() {
 		t.Error("LogsDialog.Loading should be true")
 	}
 	if cmd == nil {
@@ -346,10 +341,10 @@ func TestHandleKeyOpenNotifications(t *testing.T) {
 	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
 	m = result
 
-	if m.Dialog != DialogNotifications {
-		t.Fatalf("Dialog = %v, want DialogNotifications", m.Dialog)
+	if m.Dialog != DialogTools || m.ToolsDialog.Section() != ToolsSectionInteractive {
+		t.Fatalf("dialog/section = %v/%v, want tools/notifications", m.Dialog, m.ToolsDialog.Section())
 	}
-	if !m.NotificationDialog.Loading() {
+	if !m.ToolsDialog.Notifications.Loading() {
 		t.Fatal("NotificationDialog.Loading should be true")
 	}
 	if cmd == nil {
@@ -357,23 +352,81 @@ func TestHandleKeyOpenNotifications(t *testing.T) {
 	}
 }
 
+func TestToolsDialogSwitchesSectionsWithoutNestedTabs(t *testing.T) {
+	m := newTestModel()
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionConfig)
+
+	result, cmd := m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	if result.ToolsDialog.Section() != ToolsSectionLogs || cmd == nil {
+		t.Fatal("2 should switch to logs and load them")
+	}
+	result, cmd = result.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	if result.ToolsDialog.Section() != ToolsSectionInteractive || cmd == nil {
+		t.Fatal("3 should switch to notifications and load them")
+	}
+	result, cmd = result.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	if result.ToolsDialog.Section() != ToolsSectionConfig || cmd != nil {
+		t.Fatal("1 should return to the existing config buffer without reloading it")
+	}
+	result, cmd = result.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	if result.ToolsDialog.Section() != ToolsSectionSystem ||
+		result.ToolsDialog.Notifications.MessageType() != models.NotificationTypeSystem ||
+		cmd == nil {
+		t.Fatal("4 should switch to system notifications and load them")
+	}
+}
+
+func TestToolsDialogDoesNotSwitchSectionsWhileInsertingJSON(t *testing.T) {
+	m := newTestModel()
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionConfig)
+	m.ToolsDialog.Config.lines = []string{""}
+	m.ToolsDialog.Config.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+
+	result, _ := m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	if result.ToolsDialog.Section() != ToolsSectionConfig {
+		t.Fatal("section shortcut must be inserted as text in insert mode")
+	}
+	if result.ToolsDialog.Config.Text() != "2" {
+		t.Fatalf("config text = %q, want inserted shortcut rune", result.ToolsDialog.Config.Text())
+	}
+}
+
+func TestToolsDialogEscapeLeavesInsertBeforeClosing(t *testing.T) {
+	m := newTestModel()
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionConfig)
+	m.ToolsDialog.Config.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+	if result.Dialog != DialogTools || result.ToolsDialog.Config.Mode() != ConfigEditorNormal {
+		t.Fatal("first Esc should leave insert mode and keep the tools dialog open")
+	}
+	result, _ = result.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+	if result.Dialog != DialogNone {
+		t.Fatal("second Esc should close the tools dialog")
+	}
+}
+
 func TestHandleNotificationDialogSingleReadOnlyForInteractiveMessages(t *testing.T) {
 	m := newTestModel()
 	m.Client = &client.Client{}
-	m.Dialog = DialogNotifications
-	m.NotificationDialog.SetNotifications(models.NotificationTypeInteractive, []models.Notification{
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionInteractive)
+	m.ToolsDialog.Notifications.SetNotifications(models.NotificationTypeInteractive, []models.Notification{
 		{ID: 10, Content: "reply"},
 	}, 1)
 
-	result, cmd := m.handleNotificationDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd == nil || !result.NotificationDialog.action {
+	result, cmd := m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || !result.ToolsDialog.Notifications.action {
 		t.Fatal("interactive Enter should start a single-read action")
 	}
 
-	result.NotificationDialog.SetNotifications(models.NotificationTypeSystem, []models.Notification{
+	result.ToolsDialog.Notifications.SetNotifications(models.NotificationTypeSystem, []models.Notification{
 		{ID: 11, Content: "system"},
 	}, 1)
-	result, cmd = result.handleNotificationDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd = result.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd != nil {
 		t.Fatal("system Enter must not call the single-read endpoint")
 	}
@@ -381,22 +434,23 @@ func TestHandleNotificationDialogSingleReadOnlyForInteractiveMessages(t *testing
 
 func TestUpdateNotificationActionMarksRequestedNotificationRead(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogNotifications
-	m.NotificationDialog.SetNotifications(models.NotificationTypeInteractive, []models.Notification{
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionInteractive)
+	m.ToolsDialog.Notifications.SetNotifications(models.NotificationTypeInteractive, []models.Notification{
 		{ID: 10, Content: "first"},
 		{ID: 11, Content: "second"},
 	}, 2)
-	m.NotificationDialog.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.ToolsDialog.Notifications.Update(tea.KeyMsg{Type: tea.KeyDown})
 
 	result, _ := m.Update(NotificationActionMsg{
 		MessageType: models.NotificationTypeInteractive,
 		ID:          10,
 	})
 	got := result.(Model)
-	if !got.NotificationDialog.items[0].Read {
+	if !got.ToolsDialog.Notifications.items[0].Read {
 		t.Fatal("requested notification should be marked read")
 	}
-	if got.NotificationDialog.items[1].Read {
+	if got.ToolsDialog.Notifications.items[1].Read {
 		t.Fatal("currently selected notification must not be marked when another ID completed")
 	}
 }
@@ -855,161 +909,59 @@ func TestHandlePostsKeyPrefetchMoreBeforeLastLine(t *testing.T) {
 	}
 }
 
-func TestHandleConfigKeyInput(t *testing.T) {
+func TestHandleToolsConfigInsertAndSave(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogConfig
-	m.ConfigDialog = NewConfigDialog(&config.Config{})
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionConfig)
+	m.ToolsDialog.Config.lines = strings.Split(`{"username":"a","database":{},"cors":{}}`, "\n")
 
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
-	if m.ConfigDialog.Username() != "a" {
-		t.Errorf("ConfigDialog.Username = %s, want 'a'", m.ConfigDialog.Username())
+	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	if m.ToolsDialog.Config.Mode() != ConfigEditorInsert {
+		t.Fatal("i should enter insert mode")
 	}
-
-	m.ConfigDialog.setFocus(1)
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
-	if m.ConfigDialog.Password() != "b" {
-		t.Errorf("ConfigDialog.Password = %s, want 'b'", m.ConfigDialog.Password())
-	}
-
-	m.ConfigDialog.setFocus(2)
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
-	if m.ConfigDialog.SecretKey() != "c" {
-		t.Errorf("ConfigDialog.SecretKey = %s, want 'c'", m.ConfigDialog.SecretKey())
-	}
-}
-
-func TestHandleConfigKeyBackspace(t *testing.T) {
-	m := newTestModel()
-	m.Dialog = DialogConfig
-	m.ConfigDialog = NewConfigDialog(&config.Config{Username: "test"})
-
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyBackspace})
-	if m.ConfigDialog.Username() != "tes" {
-		t.Errorf("ConfigDialog.Username = %s, want 'tes'", m.ConfigDialog.Username())
-	}
-}
-
-func TestHandleConfigKeyAllowsHorizontalCursorMovement(t *testing.T) {
-	m := newTestModel()
-	m.Dialog = DialogConfig
-	m.ConfigDialog = NewConfigDialog(&config.Config{Username: "abc"})
-
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyLeft})
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
-
-	if got := m.ConfigDialog.Username(); got != "abXc" {
-		t.Fatalf("ConfigDialog.Username = %q, want %q", got, "abXc")
-	}
-}
-
-func TestHandleConfigKeyNavigation(t *testing.T) {
-	m := newTestModel()
-	m.Dialog = DialogConfig
-	m.ConfigDialog = NewConfigDialog(m.Config)
-
-	// Down should move from field 0 -> 1 -> 2
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyDown})
-	if m.ConfigDialog.FocusIndex() != 1 {
-		t.Errorf("ConfigDialog.FocusIndex = %d, want 1", m.ConfigDialog.FocusIndex())
-	}
-
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyDown})
-	if m.ConfigDialog.FocusIndex() != 2 {
-		t.Errorf("ConfigDialog.FocusIndex = %d, want 2", m.ConfigDialog.FocusIndex())
-	}
-
-	// Down from field 2 should stay at 2 (capped)
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyDown})
-	if m.ConfigDialog.FocusIndex() != 3 {
-		t.Errorf("ConfigDialog.FocusIndex should move to save button, got %d", m.ConfigDialog.FocusIndex())
-	}
-
-	// Up should move from save -> field 2 -> 1 -> 0
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyUp})
-	if m.ConfigDialog.FocusIndex() != 2 {
-		t.Errorf("ConfigDialog.FocusIndex = %d, want 2", m.ConfigDialog.FocusIndex())
-	}
-
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyUp})
-	if m.ConfigDialog.FocusIndex() != 1 {
-		t.Errorf("ConfigDialog.FocusIndex = %d, want 1", m.ConfigDialog.FocusIndex())
-	}
-
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyUp})
-	if m.ConfigDialog.FocusIndex() != 0 {
-		t.Errorf("ConfigDialog.FocusIndex = %d, want 0", m.ConfigDialog.FocusIndex())
-	}
-
-	// Up from field 0 should stay at 0
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyUp})
-	if m.ConfigDialog.FocusIndex() != 0 {
-		t.Errorf("ConfigDialog.FocusIndex should stay at 0, got %d", m.ConfigDialog.FocusIndex())
-	}
-
-	// Enter on an input field moves focus to the save button.
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.ConfigDialog.FocusIndex() != 4 {
-		t.Errorf("ConfigDialog.FocusIndex = %d, want 4", m.ConfigDialog.FocusIndex())
-	}
-
-	// From save, up should go back to field 3
-	m, _ = m.handleConfigKey(tea.KeyMsg{Type: tea.KeyUp})
-	if m.ConfigDialog.FocusIndex() != 3 {
-		t.Errorf("ConfigDialog.FocusIndex = %d, want 3", m.ConfigDialog.FocusIndex())
-	}
-}
-
-func TestHandleConfigKeySave(t *testing.T) {
-	m := newTestModel()
-	m.Dialog = DialogConfig
-	m.ConfigDialog.setFocus(m.ConfigDialog.saveIndex())
-
-	result, cmd := m.handleConfigKey(tea.KeyMsg{Type: tea.KeyEnter})
-	m = result
-
-	if !m.ConfigDialog.saving {
-		t.Error("ConfigDialog.saving should be true")
-	}
-	if cmd == nil {
-		t.Error("Should trigger saveConfigCmd")
+	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if !m.ToolsDialog.Config.saving {
+		t.Fatal("Ctrl+S should start saving valid JSON")
 	}
 }
 
 func TestHandleLogsKeyNavigation(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogLogs
-	m.LogsDialog.SetLines([]string{"line1", "line2", "line3", "line4", "line5"})
-	m.LogsDialog.offset = 2
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionLogs)
+	m.ToolsDialog.Logs.SetLines([]string{"line1", "line2", "line3", "line4", "line5"})
+	m.ToolsDialog.Logs.offset = 2
 
-	m, _ = m.handleLogsKey(tea.KeyMsg{Type: tea.KeyDown})
-	if m.LogsDialog.Offset() != 3 {
-		t.Errorf("LogsDialog.Offset = %d, want 3", m.LogsDialog.Offset())
+	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyDown})
+	if m.ToolsDialog.Logs.Offset() != 3 {
+		t.Errorf("offset = %d, want 3", m.ToolsDialog.Logs.Offset())
 	}
 
-	m, _ = m.handleLogsKey(tea.KeyMsg{Type: tea.KeyUp})
-	if m.LogsDialog.Offset() != 2 {
-		t.Errorf("LogsDialog.Offset = %d, want 2", m.LogsDialog.Offset())
+	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyUp})
+	if m.ToolsDialog.Logs.Offset() != 2 {
+		t.Errorf("offset = %d, want 2", m.ToolsDialog.Logs.Offset())
 	}
 
-	m, _ = m.handleLogsKey(tea.KeyMsg{Type: tea.KeyPgDown})
-	if m.LogsDialog.Offset() != 4 {
-		t.Errorf("LogsDialog.Offset = %d, want 4", m.LogsDialog.Offset())
+	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.ToolsDialog.Logs.Offset() != 4 {
+		t.Errorf("offset = %d, want 4", m.ToolsDialog.Logs.Offset())
 	}
 
-	m, _ = m.handleLogsKey(tea.KeyMsg{Type: tea.KeyPgUp})
-	if m.LogsDialog.Offset() != 0 {
-		t.Errorf("LogsDialog.Offset = %d, want 0", m.LogsDialog.Offset())
+	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyPgUp})
+	if m.ToolsDialog.Logs.Offset() != 0 {
+		t.Errorf("offset = %d, want 0", m.ToolsDialog.Logs.Offset())
 	}
 }
 
 func TestHandleLogsKeyRefresh(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogLogs
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionLogs)
 
-	result, cmd := m.handleLogsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	result, cmd := m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	m = result
 
-	if !m.LogsDialog.Loading() {
+	if !m.ToolsDialog.Logs.Loading() {
 		t.Error("LogsDialog.Loading should be true")
 	}
 	if cmd == nil {
@@ -1127,7 +1079,7 @@ func TestImageDialogViewUsesForegroundZIndex(t *testing.T) {
 
 func TestHandleDialogEscClose(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogConfig
+	m.Dialog = DialogTools
 
 	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
 	m = result
@@ -1143,10 +1095,10 @@ func TestSaveConfigMsgSuccess(t *testing.T) {
 	result, _ := m.Update(SaveConfigMsg{})
 	m = result.(Model)
 
-	if !m.ConfigDialog.saveOK {
+	if !m.ToolsDialog.Config.saveOK {
 		t.Error("ConfigDialog.saveOK should be true")
 	}
-	if m.ConfigDialog.saving {
+	if m.ToolsDialog.Config.saving {
 		t.Error("ConfigDialog.saving should be false")
 	}
 }
@@ -1157,7 +1109,7 @@ func TestSaveConfigMsgError(t *testing.T) {
 	result, _ := m.Update(SaveConfigMsg{Error: errTest})
 	m = result.(Model)
 
-	if m.ConfigDialog.saveOK {
+	if m.ToolsDialog.Config.saveOK {
 		t.Error("ConfigDialog.saveOK should be false on error")
 	}
 	if m.LastError != "test error" {
@@ -1454,8 +1406,9 @@ func TestViewPostDetailEmptyComments(t *testing.T) {
 
 func TestViewConfigDialog(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogConfig
-	m.ConfigDialog = NewConfigDialog(&config.Config{
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionConfig)
+	m.ToolsDialog.Config = NewConfigDialog(&config.Config{
 		Username:  "testuser",
 		Password:  "secret",
 		SecretKey: "KEY123",
@@ -1464,29 +1417,31 @@ func TestViewConfigDialog(t *testing.T) {
 	m.Height = 40
 
 	output := m.View()
+	plain := stripANSI(output)
 
-	if !containsStr(output, "配置管理") {
-		t.Error("View() should show '配置管理'")
+	if strings.Contains(plain, "工具") || !strings.Contains(plain, "配置") {
+		t.Fatalf("View() should show tabs without a redundant tools title:\n%s", plain)
 	}
-	if !containsStr(output, "testuser") {
+	if !strings.Contains(plain, "testuser") {
 		t.Error("View() should show username")
 	}
-	if !containsStr(output, "保存配置") {
-		t.Error("View() should show save button")
+	if !strings.Contains(plain, "Ctrl+S") {
+		t.Error("View() should show JSON save shortcut")
 	}
 }
 
-func TestViewConfigDialogMaskedPassword(t *testing.T) {
+func TestViewConfigDialogShowsEditableJSONPassword(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogConfig
-	m.ConfigDialog = NewConfigDialog(&config.Config{Password: "mypassword"})
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionConfig)
+	m.ToolsDialog.Config = NewConfigDialog(&config.Config{Password: "mypassword"})
 	m.Width = 80
 	m.Height = 24
 
 	output := m.View()
 
-	if containsStr(output, "mypassword") {
-		t.Error("View() should NOT show plaintext password")
+	if !containsStr(output, "mypassword") {
+		t.Error("JSON editor should show the editable config value")
 	}
 }
 
@@ -1517,15 +1472,16 @@ func TestViewHelpDialog(t *testing.T) {
 
 func TestViewLogsDialog(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogLogs
-	m.LogsDialog.SetLines([]string{"2024-01-01 INFO: started", "2024-01-01 INFO: done"})
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionLogs)
+	m.ToolsDialog.Logs.SetLines([]string{"2024-01-01 INFO: started", "2024-01-01 INFO: done"})
 	m.Width = 80
 	m.Height = 24
 
 	output := m.View()
 
-	if !containsStr(output, "运行日志") {
-		t.Error("View() should show '运行日志'")
+	if containsStr(output, "运行日志") {
+		t.Error("logs page should not repeat its flattened title")
 	}
 	if !containsStr(output, "started") {
 		t.Error("View() should show log content")
@@ -1534,15 +1490,17 @@ func TestViewLogsDialog(t *testing.T) {
 
 func TestViewLogsDialogEmpty(t *testing.T) {
 	m := newTestModel()
-	m.Dialog = DialogLogs
-	m.LogsDialog.SetLines(nil)
+	m.Dialog = DialogTools
+	m.ToolsDialog.Switch(ToolsSectionLogs)
+	m.ToolsDialog.Logs.SetLines(nil)
 	m.Width = 80
 	m.Height = 24
 
 	output := m.View()
+	plain := stripANSI(output)
 
-	if !containsStr(output, "暂无日志") {
-		t.Error("View() should show '暂无日志'")
+	if !strings.Contains(plain, "暂无日志") {
+		t.Fatalf("View() should show '暂无日志':\n%s", plain)
 	}
 }
 
@@ -1576,30 +1534,6 @@ func TestCalcPostViewportHeightSmall(t *testing.T) {
 	h := m.calcPostViewportHeight()
 	if h != 3 {
 		t.Errorf("calcPostViewportHeight = %d, want 3 (minimum)", h)
-	}
-}
-
-func TestMaskField(t *testing.T) {
-	tests := []struct {
-		name     string
-		value    string
-		mask     bool
-		expected string
-	}{
-		{"empty no mask", "", false, "(空)"},
-		{"empty mask", "", true, "(空)"},
-		{"visible", "hello", false, "hello"},
-		{"masked", "secret", true, "******"},
-		{"single masked", "a", true, "*"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := maskField(tt.value, tt.mask)
-			if result != tt.expected {
-				t.Errorf("maskField(%q, %v) = %q, want %q", tt.value, tt.mask, result, tt.expected)
-			}
-		})
 	}
 }
 
@@ -1681,8 +1615,8 @@ func TestHandleSessionDialogOpenConfig(t *testing.T) {
 	m.SessionDialog = NewSessionPromptDialog(m.Session)
 
 	result, cmd := m.handleSessionDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if result.Dialog != DialogConfig {
-		t.Fatalf("dialog = %v, want config", result.Dialog)
+	if result.Dialog != DialogTools || result.ToolsDialog.Section() != ToolsSectionConfig {
+		t.Fatalf("dialog/section = %v/%v, want tools/config", result.Dialog, result.ToolsDialog.Section())
 	}
 	if cmd == nil {
 		t.Fatal("expected load config command")

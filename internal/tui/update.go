@@ -205,50 +205,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case LoadLogsMsg:
 		if msg.Error != nil {
-			m.LogsDialog.SetError(msg.Error)
+			m.ToolsDialog.Logs.SetError(msg.Error)
 		} else {
-			m.LogsDialog.SetLines(msg.Lines)
+			m.ToolsDialog.Logs.SetLines(msg.Lines)
 		}
 		return m, nil
 
 	case LoadNotificationsMsg:
 		if msg.Error != nil {
-			m.NotificationDialog.SetError(msg.Error)
+			m.ToolsDialog.Notifications.SetError(msg.Error)
 			m.handleOnlineReadFailure(msg.Error)
-		} else if msg.MessageType == m.NotificationDialog.MessageType() {
-			m.NotificationDialog.SetNotifications(msg.MessageType, msg.Items, msg.Total)
+		} else if msg.MessageType == m.ToolsDialog.Notifications.MessageType() {
+			m.ToolsDialog.Notifications.SetNotifications(msg.MessageType, msg.Items, msg.Total)
 		}
 		return m, nil
 
 	case NotificationActionMsg:
 		if msg.Error != nil {
-			m.NotificationDialog.SetError(msg.Error)
+			m.ToolsDialog.Notifications.SetError(msg.Error)
 			m.LastError = msg.Error.Error()
 			return m, nil
 		}
-		if msg.MessageType != m.NotificationDialog.MessageType() {
+		if msg.MessageType != m.ToolsDialog.Notifications.MessageType() {
 			return m, nil
 		}
 		if msg.All {
-			m.NotificationDialog.MarkAllRead()
+			m.ToolsDialog.Notifications.MarkAllRead()
 			return m, m.showToast("当前分类通知已全部设为已读")
 		}
-		m.NotificationDialog.MarkRead(msg.ID)
+		m.ToolsDialog.Notifications.MarkRead(msg.ID)
 		return m, m.showToast("通知已设为已读")
 
 	case LoadConfigMsg:
 		if msg.Error == nil && msg.Config != nil {
 			m.Config = msg.Config
-			m.ConfigDialog.SetConfig(msg.Config)
+			m.ToolsDialog.Config.SetConfig(msg.Config)
 		}
 		return m, nil
 
 	case SaveConfigMsg:
 		if msg.Error != nil {
 			m.LastError = msg.Error.Error()
-			m.ConfigDialog.SetSaveResult(msg.Error)
+			m.ToolsDialog.Config.SetSaveResult(msg.Error)
 		} else {
-			m.ConfigDialog.SetSaveResult(nil)
+			if msg.Config != nil {
+				m.Config = msg.Config
+			}
+			m.ToolsDialog.Config.SetSaveResult(nil)
 		}
 		return m, nil
 
@@ -363,7 +366,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.String() == "esc" && m.Dialog != DialogNone && m.Dialog != DialogSessionPrompt && m.Dialog != DialogAuthChallenge {
+	if msg.String() == "esc" &&
+		m.Dialog != DialogNone &&
+		m.Dialog != DialogSessionPrompt &&
+		m.Dialog != DialogAuthChallenge &&
+		!(m.Dialog == DialogTools &&
+			m.ToolsDialog.Section() == ToolsSectionConfig &&
+			m.ToolsDialog.Config.Mode() == ConfigEditorInsert) {
 		m.Dialog = DialogNone
 		return m, nil
 	}
@@ -384,18 +393,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.Dialog == DialogNone && !m.Posts.Searching && !m.Posts.ShowPostDetail {
 		switch msg.String() {
 		case "c":
-			m.Dialog = DialogConfig
-			m.ConfigDialog = NewConfigDialog(m.Config)
+			m.Dialog = DialogTools
+			m.ToolsDialog.Switch(ToolsSectionConfig)
+			m.ToolsDialog.Config = NewConfigDialog(m.Config)
 			return m, loadConfigCmd()
 		case "l":
-			m.Dialog = DialogLogs
-			m.LogsDialog.SetLoading(true)
+			m.Dialog = DialogTools
+			m.ToolsDialog.Switch(ToolsSectionLogs)
+			m.ToolsDialog.Logs.SetLoading(true)
 			return m, loadLogsCmd()
 		case "b":
-			m.Dialog = DialogNotifications
-			m.NotificationDialog = NewNotificationDialog()
-			m.NotificationDialog.SetLoading(true)
-			return m, loadNotificationsCmd(m.Client, m.NotificationDialog.MessageType())
+			m.Dialog = DialogTools
+			m.ToolsDialog.Switch(ToolsSectionInteractive)
+			m.ToolsDialog.Notifications = NewNotificationDialog()
+			m.ToolsDialog.Notifications.SetLoading(true)
+			return m, loadNotificationsCmd(m.Client, m.ToolsDialog.Notifications.MessageType())
 		}
 	}
 
@@ -420,10 +432,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 	if m.Dialog != DialogNone {
 		switch m.Dialog {
-		case DialogConfig:
-			return m.handleConfigKey(msg)
-		case DialogLogs:
-			return m.handleLogsKey(msg)
+		case DialogTools:
+			return m.handleToolsDialogKey(msg)
 		case DialogImage:
 			return m.handleImageDialogKey(msg)
 		case DialogHelp:
@@ -436,8 +446,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			return m.handleComposerKey(msg)
 		case DialogTags:
 			return m.handleTagsDialogKey(msg)
-		case DialogNotifications:
-			return m.handleNotificationDialogKey(msg)
 		}
 	}
 
@@ -774,50 +782,70 @@ func (m *Model) syncPostsPage() {
 	m.Posts.syncViewports(m.Width, m.contentAreaHeightForSize(m.Width, m.Height))
 }
 
-func (m Model) handleConfigKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape {
+func (m Model) handleToolsDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	if msg.Type == tea.KeyEscape &&
+		(m.ToolsDialog.Section() != ToolsSectionConfig || m.ToolsDialog.Config.Mode() == ConfigEditorNormal) {
 		m.Dialog = DialogNone
 		return m, nil
 	}
-	if msg.Type == tea.KeyEnter && m.ConfigDialog.IsSaveFocused() {
-		m.ConfigDialog.SetSaving(true)
-		return m, saveConfigCmd(m.ConfigDialog.ToConfig(m.Config))
+	if m.ToolsDialog.Section() == ToolsSectionConfig && msg.Type == tea.KeyCtrlS {
+		cfg, err := m.ToolsDialog.Config.ToConfig()
+		if err != nil {
+			m.ToolsDialog.Config.SetSaveResult(err)
+			return m, nil
+		}
+		m.ToolsDialog.Config.SetSaving(true)
+		return m, saveConfigCmd(cfg)
 	}
-	cmd := m.ConfigDialog.Update(msg)
-	return m, cmd
-}
-
-func (m Model) handleLogsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape {
-		m.Dialog = DialogNone
-		return m, nil
-	}
-	cmd := m.LogsDialog.Update(msg)
-	return m, cmd
-}
-
-func (m Model) handleNotificationDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape {
-		m.Dialog = DialogNone
+	if m.ToolsDialog.Section() == ToolsSectionConfig && m.ToolsDialog.Config.Mode() == ConfigEditorInsert {
+		m.ToolsDialog.Config.Update(msg)
 		return m, nil
 	}
 	switch msg.String() {
+	case "1":
+		m.ToolsDialog.Switch(ToolsSectionConfig)
+		return m, nil
+	case "2":
+		m.ToolsDialog.Switch(ToolsSectionLogs)
+		m.ToolsDialog.Logs.SetLoading(true)
+		return m, loadLogsCmd()
+	case "3":
+		m.ToolsDialog.Switch(ToolsSectionInteractive)
+		m.ToolsDialog.Notifications.SetMessageType(models.NotificationTypeInteractive)
+		m.ToolsDialog.Notifications.SetLoading(true)
+		return m, loadNotificationsCmd(m.Client, m.ToolsDialog.Notifications.MessageType())
+	case "4":
+		m.ToolsDialog.Switch(ToolsSectionSystem)
+		m.ToolsDialog.Notifications.SetMessageType(models.NotificationTypeSystem)
+		m.ToolsDialog.Notifications.SetLoading(true)
+		return m, loadNotificationsCmd(m.Client, m.ToolsDialog.Notifications.MessageType())
+	}
+	switch m.ToolsDialog.Section() {
+	case ToolsSectionConfig:
+		m.ToolsDialog.Config.Update(msg)
+		return m, nil
+	case ToolsSectionLogs:
+		return m, m.ToolsDialog.Logs.Update(msg)
+	}
+
+	notifications := &m.ToolsDialog.Notifications
+	switch msg.String() {
 	case "r":
-		m.NotificationDialog.SetLoading(true)
-		return m, loadNotificationsCmd(m.Client, m.NotificationDialog.MessageType())
+		notifications.SetLoading(true)
+		return m, loadNotificationsCmd(m.Client, notifications.MessageType())
 	case "enter":
-		if !m.NotificationDialog.CanMarkSelectedRead() {
+		if !notifications.CanMarkSelectedRead() {
 			return m, nil
 		}
-		selected := m.NotificationDialog.Selected()
-		m.NotificationDialog.SetAction(true)
-		return m, setNotificationReadCmd(m.Client, selected.ID, m.NotificationDialog.MessageType())
+		selected := notifications.Selected()
+		notifications.SetAction(true)
+		return m, setNotificationReadCmd(m.Client, selected.ID, notifications.MessageType())
 	case "a":
-		m.NotificationDialog.SetAction(true)
-		return m, setAllNotificationsReadCmd(m.Client, m.NotificationDialog.MessageType())
+		notifications.SetAction(true)
+		return m, setAllNotificationsReadCmd(m.Client, notifications.MessageType())
 	}
-	if m.NotificationDialog.Update(msg) {
-		return m, loadNotificationsCmd(m.Client, m.NotificationDialog.MessageType())
+	if notifications.Update(msg) {
+		return m, loadNotificationsCmd(m.Client, notifications.MessageType())
 	}
 	return m, nil
 }
@@ -843,8 +871,9 @@ func (m Model) handleSessionDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if msg.Type == tea.KeyEnter {
 		switch m.SessionDialog.SelectedOption() {
 		case "打开配置":
-			m.Dialog = DialogConfig
-			m.ConfigDialog = NewConfigDialog(m.Config)
+			m.Dialog = DialogTools
+			m.ToolsDialog.Switch(ToolsSectionConfig)
+			m.ToolsDialog.Config = NewConfigDialog(m.Config)
 			return m, loadConfigCmd()
 		case "重新登录":
 			return m, refreshSessionCmd(m.Client, m.Config)
@@ -1305,10 +1334,6 @@ func saveConfigCmd(cfg *config.Config) tea.Cmd {
 		if err := config.EnsureRuntimeFiles(); err != nil {
 			return SaveConfigMsg{Error: err}
 		}
-		existing, err := config.LoadConfig()
-		if err == nil {
-			cfg.Cors = existing.Cors
-		}
 		data, err := json.MarshalIndent(cfg, "", "    ")
 		if err != nil {
 			return SaveConfigMsg{Error: err}
@@ -1320,7 +1345,7 @@ func saveConfigCmd(cfg *config.Config) tea.Cmd {
 		if err := os.WriteFile(configPath, data, 0644); err != nil {
 			return SaveConfigMsg{Error: err}
 		}
-		return SaveConfigMsg{}
+		return SaveConfigMsg{Config: cfg}
 	}
 }
 

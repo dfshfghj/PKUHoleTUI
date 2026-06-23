@@ -1,205 +1,68 @@
 package tui
 
 import (
-	"strconv"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"treehole/internal/config"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-type ConfigSection int
+type ConfigEditorMode int
 
 const (
-	ConfigSectionAuth ConfigSection = iota
-	ConfigSectionDatabase
+	ConfigEditorNormal ConfigEditorMode = iota
+	ConfigEditorInsert
 )
 
-type configFieldDef struct {
-	label       string
-	placeholder string
-	secret      bool
-}
-
 type ConfigDialogModel struct {
-	authInputs     []textinput.Model
-	databaseInputs []textinput.Model
-	section        ConfigSection
-	focus          int
-	saving         bool
-	saveOK         bool
-	lastErr        string
-	formViewport   viewport.Model
-	formContent    string
-}
-
-var authFieldDefs = []configFieldDef{
-	{label: "用户名:", placeholder: "用户名"},
-	{label: "密码:", placeholder: "密码", secret: true},
-	{label: "SecretKey:", placeholder: "SecretKey", secret: true},
-	{label: "DeviceUUID:", placeholder: "设备 UUID"},
-}
-
-var databaseFieldDefs = []configFieldDef{
-	{label: "Type:", placeholder: "sqlite3/postgres"},
-	{label: "Host:", placeholder: "localhost"},
-	{label: "Port:", placeholder: "5432"},
-	{label: "User:", placeholder: "数据库用户名"},
-	{label: "Password:", placeholder: "数据库密码", secret: true},
-	{label: "Name:", placeholder: "数据库名"},
-	{label: "DBFile:", placeholder: "./treehole.db"},
-	{label: "SSLMode:", placeholder: "disable"},
-	{label: "DSN:", placeholder: "自定义 DSN"},
-}
-
-func newConfigInputs(defs []configFieldDef, values []string) []textinput.Model {
-	inputs := make([]textinput.Model, len(defs))
-	for i, def := range defs {
-		input := textinput.New()
-		input.Prompt = ""
-		input.Placeholder = def.placeholder
-		if i < len(values) {
-			input.SetValue(values[i])
-		}
-		input.Width = 40
-		if def.secret {
-			input.EchoMode = textinput.EchoPassword
-			input.EchoCharacter = '*'
-		}
-		inputs[i] = input
-	}
-	return inputs
+	lines      []string
+	cursorRow  int
+	cursorCol  int
+	offset     int
+	columnOff  int
+	mode       ConfigEditorMode
+	pendingG   bool
+	saving     bool
+	saveOK     bool
+	lastErr    string
+	viewHeight int
+	viewWidth  int
 }
 
 func NewConfigDialog(cfg *config.Config) ConfigDialogModel {
-	authValues := []string{"", "", "", ""}
-	dbValues := []string{"", "", "", "", "", "", "", "", ""}
-	if cfg != nil {
-		authValues = []string{cfg.Username, cfg.Password, cfg.SecretKey, cfg.DeviceUUID}
-		dbValues = []string{
-			cfg.Database.Type,
-			cfg.Database.Host,
-			portToString(cfg.Database.Port),
-			cfg.Database.User,
-			cfg.Database.Password,
-			cfg.Database.Name,
-			cfg.Database.DBFile,
-			cfg.Database.SSLMode,
-			cfg.Database.DSN,
-		}
+	if cfg == nil {
+		defaultConfig := config.DefaultConfig()
+		cfg = &defaultConfig
 	}
-	m := ConfigDialogModel{
-		authInputs:     newConfigInputs(authFieldDefs, authValues),
-		databaseInputs: newConfigInputs(databaseFieldDefs, dbValues),
-		section:        ConfigSectionAuth,
-		formViewport:   viewport.New(0, 0),
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		data = []byte("{}")
 	}
-	m.setFocus(0)
-	return m
-}
-
-func portToString(port int) string {
-	if port == 0 {
-		return ""
+	return ConfigDialogModel{
+		lines: strings.Split(string(data), "\n"),
+		mode:  ConfigEditorNormal,
 	}
-	return strconv.Itoa(port)
 }
 
 func (m ConfigDialogModel) initialized() bool {
-	return len(m.authInputs) == len(authFieldDefs) && len(m.databaseInputs) == len(databaseFieldDefs)
-}
-
-func (m ConfigDialogModel) currentInputs() []textinput.Model {
-	if m.section == ConfigSectionDatabase {
-		return m.databaseInputs
-	}
-	return m.authInputs
-}
-
-func (m *ConfigDialogModel) currentInputsRef() *[]textinput.Model {
-	if m.section == ConfigSectionDatabase {
-		return &m.databaseInputs
-	}
-	return &m.authInputs
-}
-
-func (m ConfigDialogModel) currentFieldDefs() []configFieldDef {
-	if m.section == ConfigSectionDatabase {
-		return databaseFieldDefs
-	}
-	return authFieldDefs
-}
-
-func (m ConfigDialogModel) saveIndex() int {
-	return len(m.currentInputs())
-}
-
-func (m *ConfigDialogModel) setFocus(idx int) {
-	if idx < 0 {
-		idx = 0
-	}
-	if idx > m.saveIndex() {
-		idx = m.saveIndex()
-	}
-	m.focus = idx
-	inputs := m.currentInputsRef()
-	for i := range *inputs {
-		if i == idx {
-			(*inputs)[i].Focus()
-		} else {
-			(*inputs)[i].Blur()
-		}
-	}
-}
-
-func (m *ConfigDialogModel) switchSection(section ConfigSection) {
-	if m.section == section {
-		return
-	}
-	m.section = section
-	m.focus = 0
-	m.setFocus(0)
+	return len(m.lines) > 0
 }
 
 func (m *ConfigDialogModel) SetConfig(cfg *config.Config) {
-	if !m.initialized() {
-		*m = NewConfigDialog(cfg)
-		return
-	}
-	if cfg == nil {
-		return
-	}
-	values := [][]string{
-		{cfg.Username, cfg.Password, cfg.SecretKey, cfg.DeviceUUID},
-		{
-			cfg.Database.Type,
-			cfg.Database.Host,
-			portToString(cfg.Database.Port),
-			cfg.Database.User,
-			cfg.Database.Password,
-			cfg.Database.Name,
-			cfg.Database.DBFile,
-			cfg.Database.SSLMode,
-			cfg.Database.DSN,
-		},
-	}
-	for i := range m.authInputs {
-		m.authInputs[i].SetValue(values[0][i])
-	}
-	for i := range m.databaseInputs {
-		m.databaseInputs[i].SetValue(values[1][i])
-	}
-	m.saveOK = false
-	m.lastErr = ""
-	m.switchSection(ConfigSectionAuth)
+	next := NewConfigDialog(cfg)
+	*m = next
 }
 
 func (m *ConfigDialogModel) SetSaving(saving bool) {
 	m.saving = saving
+	if saving {
+		m.saveOK = false
+		m.lastErr = ""
+	}
 }
 
 func (m *ConfigDialogModel) SetSaveResult(err error) {
@@ -213,288 +76,284 @@ func (m *ConfigDialogModel) SetSaveResult(err error) {
 	m.lastErr = ""
 }
 
-func (m *ConfigDialogModel) FocusIndex() int {
-	return m.focus
+func (m ConfigDialogModel) Mode() ConfigEditorMode {
+	return m.mode
 }
 
-func (m *ConfigDialogModel) IsSaveFocused() bool {
-	return m.focus == m.saveIndex()
+func (m ConfigDialogModel) Text() string {
+	return strings.Join(m.lines, "\n")
 }
 
-func (m *ConfigDialogModel) ActiveSection() ConfigSection {
-	return m.section
-}
-
-func (m *ConfigDialogModel) Username() string   { return m.authInputs[0].Value() }
-func (m *ConfigDialogModel) Password() string   { return m.authInputs[1].Value() }
-func (m *ConfigDialogModel) SecretKey() string  { return m.authInputs[2].Value() }
-func (m *ConfigDialogModel) DeviceUUID() string { return m.authInputs[3].Value() }
-
-func (m *ConfigDialogModel) ToConfig(existing *config.Config) *config.Config {
-	result := &config.Config{}
-	if existing != nil {
-		*result = *existing
+func (m *ConfigDialogModel) ToConfig() (*config.Config, error) {
+	var result config.Config
+	if err := json.Unmarshal([]byte(m.Text()), &result); err != nil {
+		return nil, fmt.Errorf("JSON 无效: %w", err)
 	}
-	result.Username = m.Username()
-	result.Password = m.Password()
-	result.SecretKey = m.SecretKey()
-	result.DeviceUUID = m.DeviceUUID()
-	result.Database.Type = m.databaseInputs[0].Value()
-	result.Database.Host = m.databaseInputs[1].Value()
-	portText := strings.TrimSpace(m.databaseInputs[2].Value())
-	if port, err := strconv.Atoi(portText); err == nil {
-		result.Database.Port = port
-		if portText == "" {
-			result.Database.Port = 0
-		}
-	} else if portText == "" {
-		result.Database.Port = 0
-	}
-	result.Database.User = m.databaseInputs[3].Value()
-	result.Database.Password = m.databaseInputs[4].Value()
-	result.Database.Name = m.databaseInputs[5].Value()
-	result.Database.DBFile = m.databaseInputs[6].Value()
-	result.Database.SSLMode = m.databaseInputs[7].Value()
-	result.Database.DSN = m.databaseInputs[8].Value()
-	return result
+	return &result, nil
 }
 
-func (m *ConfigDialogModel) Update(msg tea.KeyMsg) tea.Cmd {
+func (m *ConfigDialogModel) Update(msg tea.KeyMsg) {
+	if m.mode == ConfigEditorInsert {
+		m.updateInsert(msg)
+	} else {
+		m.updateNormal(msg)
+	}
+	m.clampCursor()
+	m.ensureCursorVisible()
+}
+
+func (m *ConfigDialogModel) updateInsert(msg tea.KeyMsg) {
 	switch msg.Type {
 	case tea.KeyEscape:
-		return nil
+		m.mode = ConfigEditorNormal
+		if m.cursorCol > 0 {
+			m.cursorCol--
+		}
+	case tea.KeyLeft:
+		m.moveHorizontal(-1)
+	case tea.KeyRight:
+		m.moveHorizontal(1)
 	case tea.KeyUp:
-		if m.focus > 0 {
-			m.setFocus(m.focus - 1)
-		}
-		return nil
+		m.moveVertical(-1)
 	case tea.KeyDown:
-		if m.focus < m.saveIndex() {
-			m.setFocus(m.focus + 1)
-		}
-		return nil
+		m.moveVertical(1)
 	case tea.KeyEnter:
-		if m.focus < m.saveIndex() {
-			m.setFocus(m.saveIndex())
-		}
-		return nil
+		line := []rune(m.lines[m.cursorRow])
+		left := string(line[:m.cursorCol])
+		right := string(line[m.cursorCol:])
+		m.lines[m.cursorRow] = left
+		m.lines = append(m.lines, "")
+		copy(m.lines[m.cursorRow+2:], m.lines[m.cursorRow+1:])
+		m.lines[m.cursorRow+1] = right
+		m.cursorRow++
+		m.cursorCol = 0
+	case tea.KeyBackspace:
+		m.backspace()
+	case tea.KeyRunes:
+		m.insertRunes(msg.Runes)
+	}
+}
+
+func (m *ConfigDialogModel) updateNormal(msg tea.KeyMsg) {
+	if msg.String() != "g" {
+		m.pendingG = false
+	}
+	switch msg.Type {
+	case tea.KeyLeft:
+		m.moveHorizontal(-1)
+	case tea.KeyRight:
+		m.moveHorizontal(1)
+	case tea.KeyUp:
+		m.moveVertical(-1)
+	case tea.KeyDown:
+		m.moveVertical(1)
 	case tea.KeyRunes:
 		switch msg.String() {
-		case "p":
-			m.switchSection(ConfigSectionAuth)
-			return nil
-		case "d":
-			m.switchSection(ConfigSectionDatabase)
-			return nil
+		case "h":
+			m.moveHorizontal(-1)
+		case "j":
+			m.moveVertical(1)
+		case "k":
+			m.moveVertical(-1)
+		case "l":
+			m.moveHorizontal(1)
+		case "i":
+			m.mode = ConfigEditorInsert
+		case "a":
+			if m.cursorCol < len([]rune(m.lines[m.cursorRow])) {
+				m.cursorCol++
+			}
+			m.mode = ConfigEditorInsert
+		case "o":
+			m.insertLine(m.cursorRow + 1)
+			m.cursorRow++
+			m.cursorCol = 0
+			m.mode = ConfigEditorInsert
+		case "O":
+			m.insertLine(m.cursorRow)
+			m.cursorCol = 0
+			m.mode = ConfigEditorInsert
+		case "x":
+			m.deleteRune()
+		case "0":
+			m.cursorCol = 0
+		case "$":
+			m.cursorCol = maxInt(0, len([]rune(m.lines[m.cursorRow]))-1)
+		case "G":
+			m.cursorRow = len(m.lines) - 1
+			m.cursorCol = 0
+		case "g":
+			if m.pendingG {
+				m.cursorRow = 0
+				m.cursorCol = 0
+				m.pendingG = false
+			} else {
+				m.pendingG = true
+				return
+			}
+		default:
+			m.pendingG = false
 		}
 	}
-
-	if m.focus < m.saveIndex() {
-		inputs := m.currentInputsRef()
-		var cmd tea.Cmd
-		(*inputs)[m.focus], cmd = (*inputs)[m.focus].Update(msg)
-		return cmd
-	}
-	return nil
 }
 
-func (m ConfigDialogModel) sectionTitle() string {
-	if m.section == ConfigSectionDatabase {
-		return "database"
-	}
-	return "auth"
+func (m *ConfigDialogModel) insertRunes(value []rune) {
+	line := []rune(m.lines[m.cursorRow])
+	next := make([]rune, 0, len(line)+len(value))
+	next = append(next, line[:m.cursorCol]...)
+	next = append(next, value...)
+	next = append(next, line[m.cursorCol:]...)
+	m.lines[m.cursorRow] = string(next)
+	m.cursorCol += len(value)
 }
 
-func (m ConfigDialogModel) renderSectionTabs() string {
-	tabs := []struct {
-		label  string
-		active bool
-	}{
-		{"账号/认证 (P)", m.section == ConfigSectionAuth},
-		{"数据库 (D)", m.section == ConfigSectionDatabase},
+func (m *ConfigDialogModel) backspace() {
+	line := []rune(m.lines[m.cursorRow])
+	if m.cursorCol > 0 {
+		m.lines[m.cursorRow] = string(append(line[:m.cursorCol-1], line[m.cursorCol:]...))
+		m.cursorCol--
+		return
 	}
-	var parts []string
-	for _, tab := range tabs {
-		if tab.active {
-			parts = append(parts, vStatValueStyle.Render(tab.label))
-		} else {
-			parts = append(parts, vStatLabelStyle.Render(tab.label))
-		}
+	if m.cursorRow == 0 {
+		return
 	}
-	return strings.Join(parts, "  ")
+	previous := []rune(m.lines[m.cursorRow-1])
+	m.cursorCol = len(previous)
+	m.lines[m.cursorRow-1] += m.lines[m.cursorRow]
+	m.lines = append(m.lines[:m.cursorRow], m.lines[m.cursorRow+1:]...)
+	m.cursorRow--
 }
 
-func (m ConfigDialogModel) dialogContentWidth(totalWidth int) int {
-	return maxInt(40, totalWidth-panelContentStyle.GetHorizontalFrameSize())
+func (m *ConfigDialogModel) deleteRune() {
+	line := []rune(m.lines[m.cursorRow])
+	if len(line) == 0 || m.cursorCol >= len(line) {
+		return
+	}
+	m.lines[m.cursorRow] = string(append(line[:m.cursorCol], line[m.cursorCol+1:]...))
 }
 
-func (m ConfigDialogModel) fieldBoxContentWidth(dialogWidth int) int {
-	return maxInt(24, dialogWidth-4)
+func (m *ConfigDialogModel) insertLine(index int) {
+	m.lines = append(m.lines, "")
+	copy(m.lines[index+1:], m.lines[index:])
+	m.lines[index] = ""
 }
 
-func (m ConfigDialogModel) fieldValueDisplay(input textinput.Model, def configFieldDef, focused bool) string {
-	value := input.Value()
-	if def.secret {
-		value = strings.Repeat("*", len([]rune(value)))
-	}
-	if !focused {
-		return value
-	}
-
-	runes := []rune(value)
-	pos := input.Position()
-	if pos < 0 {
-		pos = 0
-	}
-	if pos > len(runes) {
-		pos = len(runes)
-	}
-
-	withCursor := make([]rune, 0, len(runes)+1)
-	withCursor = append(withCursor, runes[:pos]...)
-	withCursor = append(withCursor, '█')
-	withCursor = append(withCursor, runes[pos:]...)
-	return string(withCursor)
+func (m *ConfigDialogModel) moveHorizontal(delta int) {
+	m.cursorCol += delta
 }
 
-func (m ConfigDialogModel) renderFieldBox(input textinput.Model, def configFieldDef, boxContentWidth int, focused bool) string {
-	prefixWidth := lipgloss.Width(def.label) + 1
-	valueWidth := maxInt(1, boxContentWidth-prefixWidth)
-	valueLines := wrapVisibleLine(m.fieldValueDisplay(input, def, focused), valueWidth)
-	if len(valueLines) == 0 {
-		valueLines = []string{""}
-	}
-
-	contentLines := make([]string, 0, len(valueLines))
-	for i, line := range valueLines {
-		prefix := strings.Repeat(" ", prefixWidth)
-		if i == 0 {
-			prefix = def.label + strings.Repeat(" ", maxInt(0, prefixWidth-lipgloss.Width(def.label)))
-		}
-		row := lipgloss.NewStyle().
-			Width(boxContentWidth).
-			Render(prefix + line)
-		contentLines = append(contentLines, row)
-	}
-
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(colorBorder)
-	if focused {
-		boxStyle = boxStyle.BorderForeground(colorAccent)
-	}
-
-	return boxStyle.Render(strings.Join(contentLines, "\n"))
+func (m *ConfigDialogModel) moveVertical(delta int) {
+	m.cursorRow += delta
 }
 
-func (m *ConfigDialogModel) syncFormViewport(width, height int, content string, focusRanges [][2]int) {
-	if width < 1 {
-		width = 1
+func (m *ConfigDialogModel) clampCursor() {
+	if len(m.lines) == 0 {
+		m.lines = []string{""}
 	}
-	if height < 1 {
-		height = 1
+	m.cursorRow = clampInt(m.cursorRow, 0, len(m.lines)-1)
+	maxCol := len([]rune(m.lines[m.cursorRow]))
+	if m.mode == ConfigEditorNormal && maxCol > 0 {
+		maxCol--
 	}
-	if m.formViewport.Width != width || m.formViewport.Height != height || m.formContent != content {
-		m.formViewport = viewport.New(width, height)
-		m.formViewport.SetContent(content)
-		m.formContent = content
+	m.cursorCol = clampInt(m.cursorCol, 0, maxCol)
+}
+
+func (m *ConfigDialogModel) ensureCursorVisible() {
+	if m.viewHeight < 1 {
+		return
 	}
-	if m.focus >= 0 && m.focus < len(focusRanges) {
-		top := focusRanges[m.focus][0]
-		bottom := focusRanges[m.focus][1]
-		viewTop := m.formViewport.YOffset
-		viewBottom := viewTop + m.formViewport.Height - 1
-		if top < viewTop {
-			m.formViewport.SetYOffset(top)
-		} else if bottom > viewBottom {
-			m.formViewport.SetYOffset(maxInt(0, bottom-m.formViewport.Height+1))
-		}
+	if m.cursorRow < m.offset {
+		m.offset = m.cursorRow
+	}
+	if m.cursorRow >= m.offset+m.viewHeight {
+		m.offset = m.cursorRow - m.viewHeight + 1
+	}
+	if m.viewWidth < 1 {
+		return
+	}
+	if m.cursorCol < m.columnOff {
+		m.columnOff = m.cursorCol
+	}
+	if m.cursorCol >= m.columnOff+m.viewWidth {
+		m.columnOff = m.cursorCol - m.viewWidth + 1
 	}
 }
 
 func (m *ConfigDialogModel) View(width, height int) string {
 	var b strings.Builder
-
-	dialogWidth := m.dialogContentWidth(width)
-	boxContentWidth := m.fieldBoxContentWidth(dialogWidth)
-
-	b.WriteString(vDialogTitleStyle.Render("配置管理"))
-	b.WriteString("\n\n")
-	b.WriteString(m.renderSectionTabs())
-	b.WriteString("\n\n")
-
-	fieldDefs := m.currentFieldDefs()
-	inputs := m.currentInputs()
-
-	var form strings.Builder
-	var focusRanges [][2]int
-	currentLine := 0
-	for i, f := range fieldDefs {
-		block := m.renderFieldBox(inputs[i], f, boxContentWidth, m.focus == i)
-		blockHeight := lipgloss.Height(block)
-		focusRanges = append(focusRanges, [2]int{currentLine, currentLine + blockHeight - 1})
-		form.WriteString(block)
-		form.WriteString("\n\n")
-		currentLine += blockHeight + 2
-	}
-
-	saveBtn := "保存配置"
-	saveRendered := vFormSaveBtn.Render(saveBtn)
-	if m.IsSaveFocused() {
-		saveRendered = vFormSaveActive.Render(saveBtn)
-	}
-	saveLine := lipgloss.NewStyle().
-		Width(boxContentWidth + 2).
-		Align(lipgloss.Right).
-		Render(saveRendered)
-	saveHeight := lipgloss.Height(saveLine)
-	focusRanges = append(focusRanges, [2]int{currentLine, currentLine + saveHeight - 1})
-	form.WriteString(saveLine)
-
-	formWidth := boxContentWidth + 2
-	helpText := vDialogHelpStyle.Render("p: 账号 | d: 数据库 | Esc: 关闭")
-	headerHeight := lipgloss.Height(b.String())
 	statusHeight := 0
-	if m.saving {
-		statusHeight += lipgloss.Height(vLoadingStyle.Render("保存中..."))
+	if m.saving || m.saveOK || m.lastErr != "" {
+		statusHeight = 1
 	}
-	if m.saveOK {
-		statusHeight += lipgloss.Height(vStatusRunningStyle.Render("配置已保存!"))
-	}
-	if m.lastErr != "" {
-		statusHeight += lipgloss.Height(vErrorStyle.Render("错误: " + m.lastErr))
-	}
-	footerHeight := lipgloss.Height(helpText) + 2
-	bodyHeight := maxInt(3, height-panelContentStyle.GetVerticalFrameSize()-headerHeight-statusHeight-footerHeight)
-	m.syncFormViewport(formWidth, bodyHeight, form.String(), focusRanges)
+	editorHeight := maxInt(1, height-1-statusHeight)
+	m.viewHeight = editorHeight
+	m.ensureCursorVisible()
 
-	body := m.formViewport.View()
-	b.WriteString(body)
+	end := minInt(len(m.lines), m.offset+editorHeight)
+	lineNumberWidth := len(fmt.Sprintf("%d", len(m.lines)))
+	contentWidth := maxInt(8, width-lineNumberWidth-5)
+	m.viewWidth = contentWidth
+	m.ensureCursorVisible()
+	for i := m.offset; i < end; i++ {
+		number := vStatLabelStyle.
+			Background(colorBg).
+			Width(lineNumberWidth).
+			Render(fmt.Sprintf("%d", i+1))
+		line := lipgloss.NewStyle().
+			Background(colorBg).
+			Render(m.renderLine(i, contentWidth))
+		b.WriteString(number)
+		b.WriteString(" │ ")
+		b.WriteString(line)
+		if i != end-1 {
+			b.WriteString("\n")
+		}
+	}
 
 	if m.saving {
 		b.WriteString("\n")
 		b.WriteString(vLoadingStyle.Render("保存中..."))
-	}
-	if m.saveOK {
+	} else if m.saveOK {
 		b.WriteString("\n")
-		b.WriteString(vStatusRunningStyle.Render("配置已保存!"))
-	}
-	if m.lastErr != "" {
+		b.WriteString(vStatusRunningStyle.Render("配置已保存"))
+	} else if m.lastErr != "" {
 		b.WriteString("\n")
-		b.WriteString(vErrorStyle.Render("错误: " + m.lastErr))
+		b.WriteString(vErrorStyle.Render(m.lastErr))
 	}
 
-	b.WriteString("\n\n")
-	b.WriteString(helpText)
-	return b.String()
+	help := "NORMAL | Ctrl+S: 保存 | i/a/o/O: 编辑 | hjkl: 移动 | x: 删除 | gg/G"
+	if m.mode == ConfigEditorInsert {
+		help = "INSERT | Ctrl+S: 保存 | Esc: NORMAL | Enter: 换行 | Backspace: 删除"
+	}
+	return renderToolsBodyWithFooter(b.String(), help, width, height)
 }
 
-func maskField(s string, mask bool) string {
-	if s == "" {
-		return "(空)"
+func (m ConfigDialogModel) renderLine(row, width int) string {
+	line := []rune(m.lines[row])
+	start := minInt(m.columnOff, len(line))
+	end := minInt(len(line), start+width)
+	if row != m.cursorRow {
+		return string(line[start:end])
 	}
-	if mask {
-		return strings.Repeat("*", len(s))
+	col := clampInt(m.cursorCol, 0, len(line))
+	if col < start {
+		col = start
 	}
-	return s
+	if col > end {
+		col = end
+	}
+	before := string(line[start:col])
+	cursor := "█"
+	after := ""
+	if col < end {
+		if line[col] != ' ' && line[col] != '\t' {
+			cursor = string(line[col])
+		}
+		after = string(line[col+1 : end])
+	}
+	rendered := before + lipgloss.NewStyle().
+		Background(colorAccent).
+		Foreground(colorAccentText).
+		Render(cursor) + after
+	return rendered
 }

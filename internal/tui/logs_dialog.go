@@ -89,15 +89,12 @@ func (m LogsDialogModel) View(width, height int) string {
 
 	innerWidth := maxInt(20, width-panelContentStyle.GetHorizontalFrameSize())
 
-	b.WriteString(vDialogTitleStyle.Render("运行日志"))
-	b.WriteString("\n\n")
-
 	if m.loading {
 		b.WriteString(vLoadingStyle.Render("加载日志中..."))
 	} else if len(m.lines) == 0 {
 		b.WriteString(vEmptyStyle.Render("暂无日志"))
 	} else {
-		visibleLines := maxInt(5, height-panelContentStyle.GetVerticalFrameSize()-8)
+		visibleLines := maxInt(1, height-3)
 		end := m.offset + visibleLines
 		if end > len(m.lines) {
 			end = len(m.lines)
@@ -108,7 +105,7 @@ func (m LogsDialogModel) View(width, height int) string {
 			if lipgloss.Width(line) > innerWidth {
 				line = clipToVisibleWidth(line, innerWidth)
 			}
-			b.WriteString(vLogLineStyle.Render(line))
+			b.WriteString(vLogLineStyle.Background(colorBg).Render(line))
 			b.WriteString("\n")
 		}
 
@@ -125,7 +122,5 @@ func (m LogsDialogModel) View(width, height int) string {
 		b.WriteString(vErrorStyle.Render("错误: " + m.lastErr))
 	}
 
-	b.WriteString("\n")
-	b.WriteString(vDialogHelpStyle.Render("Esc: 关闭"))
-	return b.String()
+	return renderToolsBodyWithFooter(b.String(), "↑↓/PgUp/PgDn: 滚动 | r: 刷新 | Esc: 关闭", width, height)
 }

@@ -26,15 +26,13 @@ type DialogType int
 
 const (
 	DialogNone DialogType = iota
-	DialogConfig
-	DialogLogs
+	DialogTools
 	DialogImage
 	DialogHelp
 	DialogSessionPrompt
 	DialogAuthChallenge
 	DialogComposer
 	DialogTags
-	DialogNotifications
 )
 
 type CrawlerState int
@@ -179,7 +177,8 @@ type LoadConfigMsg struct {
 }
 
 type SaveConfigMsg struct {
-	Error error
+	Config *config.Config
+	Error  error
 }
 
 type CrawlMode int
@@ -248,14 +247,12 @@ type Model struct {
 	Schedule CourseSchedulePageModel
 	Scores   ScorePageModel
 
-	ConfigDialog       ConfigDialogModel
-	LogsDialog         LogsDialogModel
-	ImageDialog        ImageDialogModel
-	SessionDialog      SessionPromptDialogModel
-	AuthDialog         AuthChallengeDialogModel
-	Composer           ComposerDialogModel
-	TagsDialog         TagsDialogModel
-	NotificationDialog NotificationDialogModel
+	ToolsDialog   ToolsDialogModel
+	ImageDialog   ImageDialogModel
+	SessionDialog SessionPromptDialogModel
+	AuthDialog    AuthChallengeDialogModel
+	Composer      ComposerDialogModel
+	TagsDialog    TagsDialogModel
 
 	LastError string
 	Capture   *CaptureSink
@@ -286,24 +283,22 @@ func NewModel(database *db.Database, client *client.Client, cfg *config.Config, 
 	}
 
 	return Model{
-		Page:               PagePosts,
-		TabCursor:          1,
-		Dialog:             dialog,
-		Home:               NewHomePageModel(),
-		Database:           database,
-		Client:             client,
-		Config:             cfg,
-		Provider:           provider,
-		Session:            session,
-		Posts:              NewPostsPageModel(),
-		ConfigDialog:       NewConfigDialog(cfg),
-		LogsDialog:         NewLogsDialog(),
-		ImageDialog:        NewImageDialog(),
-		SessionDialog:      sessionDialog,
-		AuthDialog:         authDialog,
-		Composer:           NewComposerDialog(),
-		TagsDialog:         NewTagsDialog(),
-		NotificationDialog: NewNotificationDialog(),
+		Page:          PagePosts,
+		TabCursor:     1,
+		Dialog:        dialog,
+		Home:          NewHomePageModel(),
+		Database:      database,
+		Client:        client,
+		Config:        cfg,
+		Provider:      provider,
+		Session:       session,
+		Posts:         NewPostsPageModel(),
+		ToolsDialog:   NewToolsDialog(cfg),
+		ImageDialog:   NewImageDialog(),
+		SessionDialog: sessionDialog,
+		AuthDialog:    authDialog,
+		Composer:      NewComposerDialog(),
+		TagsDialog:    NewTagsDialog(),
 	}
 }
 
@@ -328,11 +323,8 @@ func tickCmd() tea.Cmd {
 }
 
 func (m *Model) ensureDialogModels() {
-	if !m.ConfigDialog.initialized() {
-		m.ConfigDialog = NewConfigDialog(m.Config)
-	}
-	if !m.LogsDialog.initialized() {
-		m.LogsDialog = NewLogsDialog()
+	if !m.ToolsDialog.initialized() {
+		m.ToolsDialog = NewToolsDialog(m.Config)
 	}
 	if !m.ImageDialog.initialized() {
 		m.ImageDialog = NewImageDialog()
@@ -348,9 +340,6 @@ func (m *Model) ensureDialogModels() {
 	}
 	if !m.TagsDialog.initialized() {
 		m.TagsDialog = NewTagsDialog()
-	}
-	if !m.NotificationDialog.initialized() {
-		m.NotificationDialog = NewNotificationDialog()
 	}
 	if m.Posts.ImageClient == nil {
 		m.Posts.ImageClient = m.Client

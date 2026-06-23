@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -115,12 +116,8 @@ func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
 	switch m.Dialog {
 	case DialogHelp:
 		body, placements = m.renderHelpScreen(width, height)
-	case DialogConfig:
-		body, placements = m.renderPanelScreen(width, height, m.renderConfigPanelContent)
-	case DialogLogs:
-		body, placements = m.renderPanelScreen(width, height, m.renderLogsPanelContent)
-	case DialogNotifications:
-		body, placements = m.renderNotificationPanelScreen(width, height)
+	case DialogTools:
+		body, placements = m.renderPanelScreenWithStyle(width, height, m.renderToolsPanelContent, true)
 	case DialogComposer:
 		body, placements = m.renderPanelScreen(width, height, m.renderComposerPanelContent)
 	case DialogImage:
@@ -204,10 +201,6 @@ func (m Model) renderPanelScreen(width, height int, renderContent func(panelW, p
 	return m.renderPanelScreenWithStyle(width, height, renderContent, false)
 }
 
-func (m Model) renderNotificationPanelScreen(width, height int) (string, []imagePlacement) {
-	return m.renderPanelScreenWithStyle(width, height, m.renderNotificationPanelContent, true)
-}
-
 func (m Model) renderPanelScreenWithStyle(width, height int, renderContent func(panelW, panelH int) string, fillPanel bool) (string, []imagePlacement) {
 	mainModel := m
 	mainModel.Dialog = DialogNone
@@ -234,15 +227,16 @@ func (m Model) renderPanelScreenWithStyle(width, height int, renderContent func(
 	panelStyle := panelContentStyle.Width(panelW).MaxHeight(panelH)
 	if fillPanel {
 		panelStyle = panelStyle.
-			Height(maxInt(1, panelH-panelContentStyle.GetVerticalFrameSize())).
+			Padding(1, 3).
+			Height(maxInt(1, panelH-2)).
 			ColorWhitespace(true)
 	}
 	panel := panelStyle.Render(renderContent(panelW, panelH))
 	if fillPanel {
-		// The v2 compositor treats ordinary spaces as transparent cells even
-		// when they carry a background color. Non-breaking spaces keep the
-		// notification panel opaque without changing its terminal width.
-		panel = strings.ReplaceAll(panel, " ", "\u00a0")
+		// The v2 compositor treats ordinary spaces as transparent cells. Use an
+		// NBSP with an explicit background sequence so the cell is retained and
+		// physically painted, while text captures still show an empty cell.
+		panel = renderOpaquePanelBlanks(panel)
 	}
 
 	baseLayer := lipgloss2.NewLayer(main)
@@ -251,16 +245,33 @@ func (m Model) renderPanelScreenWithStyle(width, height int, renderContent func(
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
 }
 
-func (m Model) renderConfigPanelContent(panelW, panelH int) string {
-	return m.ConfigDialog.View(panelW, panelH)
+func (m Model) renderToolsPanelContent(panelW, panelH int) string {
+	return m.ToolsDialog.View(
+		maxInt(20, panelW-panelContentStyle.GetHorizontalFrameSize()),
+		maxInt(8, panelH-panelContentStyle.GetVerticalFrameSize()),
+	)
 }
 
-func (m Model) renderLogsPanelContent(panelW, panelH int) string {
-	return m.LogsDialog.View(panelW, panelH)
-}
-
-func (m Model) renderNotificationPanelContent(panelW, panelH int) string {
-	return m.NotificationDialog.View(panelW, panelH)
+func renderOpaquePanelBlanks(panel string) string {
+	color, ok := colorBg.(lipgloss.Color)
+	if !ok {
+		return strings.ReplaceAll(panel, " ", "\u00a0")
+	}
+	hex := strings.TrimPrefix(string(color), "#")
+	if len(hex) != 6 {
+		return strings.ReplaceAll(panel, " ", "\u00a0")
+	}
+	value, err := strconv.ParseUint(hex, 16, 32)
+	if err != nil {
+		return strings.ReplaceAll(panel, " ", "\u00a0")
+	}
+	blank := fmt.Sprintf(
+		"\x1b[48;2;%d;%d;%dm\u00a0",
+		(value>>16)&0xff,
+		(value>>8)&0xff,
+		value&0xff,
+	)
+	return strings.ReplaceAll(panel, " ", blank) + "\x1b[49m"
 }
 
 func (m Model) renderComposerPanelContent(panelW, panelH int) string {
@@ -450,10 +461,17 @@ func joinStatusSections(width int, left, middle, right string) string {
 
 func (m Model) currentModeLabel() string {
 	switch m.Dialog {
-	case DialogConfig:
-		return "CONFIG"
-	case DialogLogs:
-		return "LOGS"
+	case DialogTools:
+		switch m.ToolsDialog.Section() {
+		case ToolsSectionLogs:
+			return "TOOLS-LOGS"
+		case ToolsSectionInteractive:
+			return "TOOLS-NOTIFY"
+		case ToolsSectionSystem:
+			return "TOOLS-SYSTEM"
+		default:
+			return "TOOLS-CONFIG"
+		}
 	case DialogHelp:
 		return "HELP"
 	case DialogSessionPrompt:
@@ -464,8 +482,6 @@ func (m Model) currentModeLabel() string {
 		return "COMPOSE"
 	case DialogTags:
 		return "TAGS"
-	case DialogNotifications:
-		return "NOTIFY"
 	}
 
 	if m.Page == PageHome {
@@ -542,10 +558,8 @@ func (m Model) currentStatusSummary() string {
 
 func (m Model) dialogStatusSummary() string {
 	switch m.Dialog {
-	case DialogConfig:
-		return "c: 配置编辑 | Enter: 保存 | Esc: 关闭"
-	case DialogLogs:
-		return "l: 运行日志 | Esc: 关闭"
+	case DialogTools:
+		return "1/2/3/4: 配置/日志/互动/系统 | Ctrl+S: 保存配置 | Esc: 关闭"
 	case DialogImage:
 		return "o: 图片预览 | Left/Right: 切换 | Esc: 关闭"
 	case DialogHelp:
@@ -558,8 +572,6 @@ func (m Model) dialogStatusSummary() string {
 		return "Ctrl+S: 提交 | Esc: 取消"
 	case DialogTags:
 		return "Enter: 选择标签 | c: 清除筛选 | Esc: 关闭"
-	case DialogNotifications:
-		return "b: 通知 | i/s: 分类 | Enter/a: 已读 | Esc: 关闭"
 	default:
 		return "h: 帮助 | Ctrl+Q: 退出"
 	}
