@@ -1,11 +1,19 @@
 package tui
 
 import (
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"treehole/internal/config"
 	"treehole/internal/models"
+
+	"charm.land/lipgloss/v2"
 )
 
 func TestNewModelStartsOnDashboardWithoutRecoveryDialog(t *testing.T) {
@@ -34,12 +42,112 @@ func TestDashboardRendersLogoUnreadNotificationsAndActions(t *testing.T) {
 			CreatedAt: "2026-06-23 12:00:00",
 		},
 	}, nil)
+	dashboard.SetHotPosts([]DashboardHotPost{
+		{ID: 8347014, Text: "hot post", FollowNum: 4},
+	}, nil)
 
 	output := stripANSI(dashboard.View(100, 36))
-	for _, want := range []string{"████████╗", "Notifications", "new reply", "#42", "Explore", "Config", "e", "n", "c"} {
+	for _, want := range []string{"████████╗", "Notifications", "new reply", "#42", "热榜", "#8347014 hot post", "★ 4", "Explore", "Config", "e", "n", "c"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("dashboard missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestDashboardHotPostLineNormalizesAndTruncatesText(t *testing.T) {
+	line := dashboardHotPostLine(DashboardHotPost{
+		ID:        8347014,
+		Text:      "第一行\r\n第二行\r第三行\n第四行 很长很长很长很长很长很长",
+		FollowNum: 114,
+	}, 34)
+
+	if strings.ContainsAny(line, "\r\n") {
+		t.Fatalf("hot post line should be single-line, got %q", line)
+	}
+	if !strings.Contains(line, "...") {
+		t.Fatalf("hot post line should truncate with ellipsis, got %q", line)
+	}
+	if !strings.HasSuffix(line, "★ 114") {
+		t.Fatalf("hot post likes should be right-aligned at line end, got %q", line)
+	}
+	if got := lipgloss.Width(line); got != 34 {
+		t.Fatalf("hot post line width = %d, want 34: %q", got, line)
+	}
+}
+
+func TestDashboardWriteHotPostsFrame(t *testing.T) {
+	dashboard := NewDashboardModel()
+	dashboard.SetNotifications([]models.Notification{
+		{
+			ID:        1,
+			Type:      models.NotificationTypeInteractive,
+			PID:       42,
+			Content:   "new reply",
+			CreatedAt: "2026-06-23 12:00:00",
+		},
+	}, nil)
+	dashboard.SetHotPosts([]DashboardHotPost{
+		{
+			ID:        8347014,
+			Text:      "妈的怎么会有人平时作业用ai做还抄袭\r\n期末答得一坨还空着题不写想捞都捞不动",
+			FollowNum: 114,
+		},
+		{ID: 8347015, Text: "短热榜", FollowNum: 4},
+	}, nil)
+
+	output := stripANSI(dashboard.View(80, 40))
+	_, filename, _, _ := runtime.Caller(0)
+	outDir := filepath.Join(filepath.Dir(filename), "../..", ".out")
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", outDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(outDir, "current-frame-dashboard.txt"), []byte(output), 0644); err != nil {
+		t.Fatalf("write dashboard frame: %v", err)
+	}
+
+	if !strings.Contains(output, "热榜") || !strings.Contains(output, "★ 114") {
+		t.Fatalf("dashboard frame missing hot posts:\n%s", output)
+	}
+	if strings.Contains(output, "\r") {
+		t.Fatalf("dashboard frame should normalize carriage returns:\n%s", output)
+	}
+	for i, line := range strings.Split(output, "\n") {
+		if got := lipgloss.Width(line); got > 80 {
+			t.Fatalf("line %d width = %d, want <= 80: %q", i, got, line)
+		}
+	}
+}
+
+func TestBuildDashboardHotPostsURLUsesRecentTwelveHourWindow(t *testing.T) {
+	previousEndpoint := dashboardHotPostsEndpoint
+	dashboardHotPostsEndpoint = "https://example.invalid/posts"
+	defer func() { dashboardHotPostsEndpoint = previousEndpoint }()
+
+	now := time.Now().Unix()
+	parsed, err := url.Parse(buildDashboardHotPostsURL(now))
+	if err != nil {
+		t.Fatalf("parse hot posts url: %v", err)
+	}
+	query := parsed.Query()
+	if query.Get("limit") != "5" {
+		t.Fatalf("limit = %q, want 5", query.Get("limit"))
+	}
+	if query.Get("order_by") != "likenum" {
+		t.Fatalf("order_by = %q, want likenum", query.Get("order_by"))
+	}
+	gotEnd, err := strconv.ParseInt(query.Get("end_time"), 10, 64)
+	if err != nil {
+		t.Fatalf("parse end_time: %v", err)
+	}
+	gotStart, err := strconv.ParseInt(query.Get("start_time"), 10, 64)
+	if err != nil {
+		t.Fatalf("parse start_time: %v", err)
+	}
+	if gotEnd != now {
+		t.Fatalf("end_time = %d, want %d", gotEnd, now)
+	}
+	if delta := gotEnd - gotStart; delta != int64(12*time.Hour/time.Second) {
+		t.Fatalf("time window = %d seconds, want 12h", delta)
 	}
 }
 

@@ -83,7 +83,7 @@ func TestToolsDialogPinsFooterToLastLine(t *testing.T) {
 	if len(lines) != 20 {
 		t.Fatalf("height = %d, want 20:\n%s", len(lines), output)
 	}
-	if !strings.Contains(lines[len(lines)-1], "Esc: 关闭") {
+	if !strings.Contains(lines[len(lines)-1], "r: 刷新") {
 		t.Fatalf("footer is not on the last line:\n%s", output)
 	}
 	if strings.TrimSpace(lines[len(lines)-2]) != "" {

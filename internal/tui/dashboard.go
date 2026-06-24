@@ -22,10 +22,19 @@ type DashboardModel struct {
 	Notifications []models.Notification
 	Loading       bool
 	Error         string
+	HotPosts      []DashboardHotPost
+	HotLoading    bool
+	HotError      string
+}
+
+type DashboardHotPost struct {
+	ID        int    `json:"id"`
+	Text      string `json:"text"`
+	FollowNum int    `json:"follownum"`
 }
 
 func NewDashboardModel() DashboardModel {
-	return DashboardModel{Loading: true}
+	return DashboardModel{Loading: true, HotLoading: true}
 }
 
 func (m *DashboardModel) SetNotifications(items []models.Notification, err error) {
@@ -41,6 +50,16 @@ func (m *DashboardModel) SetNotifications(items []models.Notification, err error
 			m.Notifications = append(m.Notifications, item)
 		}
 	}
+}
+
+func (m *DashboardModel) SetHotPosts(items []DashboardHotPost, err error) {
+	m.HotLoading = false
+	if err != nil {
+		m.HotError = err.Error()
+		return
+	}
+	m.HotError = ""
+	m.HotPosts = append(m.HotPosts[:0], items...)
 }
 
 func (m *DashboardModel) MarkRead(id int) {
@@ -91,6 +110,8 @@ func (m DashboardModel) View(width, height int) string {
 	b.WriteString("\n\n")
 	b.WriteString(m.renderNotifications(blockWidth))
 	b.WriteString("\n\n")
+	b.WriteString(m.renderHotPosts(blockWidth))
+	b.WriteString("\n\n")
 	b.WriteString(renderDashboardAction("󰈔", "Explore", "e", blockWidth))
 	b.WriteString("\n")
 	b.WriteString(renderDashboardAction("", "Config", "c", blockWidth))
@@ -117,6 +138,11 @@ func dashboardBlockWidth(m DashboardModel, logoWidth, maxWidth int) int {
 		}
 	}
 	for _, line := range strings.Split(m.renderNotificationsBody(), "\n") {
+		if lw := lipgloss.Width(line); lw > w {
+			w = lw
+		}
+	}
+	for _, line := range strings.Split(m.renderHotPostsBody(w), "\n") {
 		if lw := lipgloss.Width(line); lw > w {
 			w = lw
 		}
@@ -148,6 +174,43 @@ func (m DashboardModel) renderNotifications(width int) string {
 	return b.String()
 }
 
+func (m DashboardModel) renderHotPosts(width int) string {
+	var b strings.Builder
+	b.WriteString(renderDashboardAction("󰓎", "热榜", "", width))
+	b.WriteString("\n")
+	lines := strings.Split(m.renderHotPostsBody(width), "\n")
+	for i, line := range lines {
+		b.WriteString(padRowToWidth(line, width))
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func (m DashboardModel) renderHotPostsBody(width int) string {
+	var b strings.Builder
+	switch {
+	case m.HotLoading:
+		b.WriteString(vLoadingStyle.Render("loading..."))
+	case m.HotError != "":
+		b.WriteString(vStatLabelStyle.Render("hot posts unavailable"))
+	case len(m.HotPosts) == 0:
+		b.WriteString(vStatLabelStyle.Render("no hot posts"))
+	default:
+		limit := minInt(5, len(m.HotPosts))
+		for i := 0; i < limit; i++ {
+			b.WriteString(vStatValueStyle.Render("●"))
+			b.WriteString("  ")
+			b.WriteString(vStatLabelStyle.Render(dashboardHotPostLine(m.HotPosts[i], maxInt(1, width-3))))
+			if i != limit-1 {
+				b.WriteString("\n")
+			}
+		}
+	}
+	return b.String()
+}
+
 func (m DashboardModel) renderNotificationsBody() string {
 	var b strings.Builder
 	switch {
@@ -171,6 +234,32 @@ func (m DashboardModel) renderNotificationsBody() string {
 		}
 	}
 	return b.String()
+}
+
+func dashboardHotPostLine(item DashboardHotPost, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	likes := fmt.Sprintf("★ %d", item.FollowNum)
+	left := strings.TrimSpace(fmt.Sprintf("#%d %s", item.ID, normalizeDashboardHotPostText(item.Text)))
+	if left == "" {
+		left = fmt.Sprintf("#%d", item.ID)
+	}
+	likesWidth := lipgloss.Width(likes)
+	if width <= likesWidth+1 {
+		return truncateVisibleLine(likes, width, "...")
+	}
+	leftWidth := width - likesWidth - 2
+	left = truncateVisibleLine(left, leftWidth, "...")
+	gap := maxInt(2, width-lipgloss.Width(left)-likesWidth)
+	return left + strings.Repeat(" ", gap) + likes
+}
+
+func normalizeDashboardHotPostText(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", " ")
+	text = strings.ReplaceAll(text, "\r", " ")
+	text = strings.ReplaceAll(text, "\n", " ")
+	return strings.Join(strings.Fields(text), " ")
 }
 
 func dashboardNotificationLine(item models.Notification) string {

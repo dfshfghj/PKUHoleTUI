@@ -133,6 +133,11 @@ type LoadDashboardNotificationsMsg struct {
 	Error error
 }
 
+type LoadDashboardHotPostsMsg struct {
+	Posts []DashboardHotPost
+	Error error
+}
+
 type NotificationActionMsg struct {
 	MessageType models.NotificationType
 	ID          int
@@ -314,6 +319,7 @@ func (m Model) Init() tea.Cmd {
 			return LoginMsg{Username: username}
 		},
 		loadDashboardNotificationsCmd(m.Client),
+		loadDashboardHotPostsCmd(),
 		tickCmd(),
 	)
 }

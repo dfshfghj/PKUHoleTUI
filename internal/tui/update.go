@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -223,6 +224,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case LoadDashboardNotificationsMsg:
 		m.Dashboard.SetNotifications(msg.Items, msg.Error)
+		return m, nil
+
+	case LoadDashboardHotPostsMsg:
+		m.Dashboard.SetHotPosts(msg.Posts, msg.Error)
 		return m, nil
 
 	case NotificationActionMsg:
@@ -1459,6 +1464,45 @@ func loadDashboardNotificationsCmd(c *client.Client) tea.Cmd {
 			return left > right
 		})
 		return LoadDashboardNotificationsMsg{Items: items}
+	}
+}
+
+var dashboardHotPostsEndpoint = "https://treeholestat.dfshfghj.workers.dev/posts"
+
+func buildDashboardHotPostsURL(now int64) string {
+	start := now - int64(12*time.Hour/time.Second)
+	return fmt.Sprintf("%s?limit=5&order_by=likenum&end_time=%d&start_time=%d", dashboardHotPostsEndpoint, now, start)
+}
+
+func loadDashboardHotPostsCmd() tea.Cmd {
+	return func() tea.Msg {
+		now := time.Now().Unix()
+		url := buildDashboardHotPostsURL(now)
+
+		client := http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(url)
+		if err != nil {
+			return LoadDashboardHotPostsMsg{Error: err}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return LoadDashboardHotPostsMsg{Error: fmt.Errorf("热榜请求失败: HTTP %d", resp.StatusCode)}
+		}
+
+		var payload struct {
+			Status int                `json:"status"`
+			Data   []DashboardHotPost `json:"data"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			return LoadDashboardHotPostsMsg{Error: err}
+		}
+		if payload.Status != 0 && payload.Status != http.StatusOK {
+			return LoadDashboardHotPostsMsg{Error: fmt.Errorf("热榜请求失败: status %d", payload.Status)}
+		}
+		if len(payload.Data) > 5 {
+			payload.Data = payload.Data[:5]
+		}
+		return LoadDashboardHotPostsMsg{Posts: payload.Data}
 	}
 }
 
