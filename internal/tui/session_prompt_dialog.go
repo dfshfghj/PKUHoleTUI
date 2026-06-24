@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type SessionPromptDialogModel struct {
@@ -53,7 +53,7 @@ func (m *SessionPromptDialogModel) ApplyState(state SessionState) {
 	}
 }
 
-func (m *SessionPromptDialogModel) Update(msg tea.KeyMsg) {
+func (m *SessionPromptDialogModel) Update(msg tea.KeyPressMsg) {
 	switch msg.String() {
 	case "up", "k":
 		if m.Selected > 0 {

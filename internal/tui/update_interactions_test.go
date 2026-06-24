@@ -6,7 +6,7 @@ import (
 
 	"treehole/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type stubPostsProvider struct {
@@ -114,8 +114,8 @@ func TestMoveCommentSelectionUsesRenderedRows(t *testing.T) {
 		{Cid: 1, Text: strings.Repeat("long comment ", 8), Timestamp: 1100, NameTag: "user1"},
 		{Cid: 2, Text: "Second", Timestamp: 1200, NameTag: "user2"},
 	}
-	page.CommentViewport.Width = 24
-	page.CommentViewport.Height = 5
+	page.CommentViewport.SetWidth(24)
+	page.CommentViewport.SetHeight(5)
 	page.CommentViewport.SetContent(page.buildCommentContent(24))
 
 	page.moveCommentSelection(1)
@@ -153,8 +153,8 @@ func TestBuildCommentContentMovesCursorWithinSelectedComment(t *testing.T) {
 		{Cid: 1, Text: strings.Repeat("line ", 8), Timestamp: 1100, NameTag: "user1"},
 	}
 	page.SelectedCommentIdx = 0
-	page.CommentViewport.Width = 20
-	page.CommentViewport.Height = 5
+	page.CommentViewport.SetWidth(20)
+	page.CommentViewport.SetHeight(5)
 
 	page.CommentCursorLine = 0
 	first := stripANSI(page.buildCommentContent(20))
@@ -192,8 +192,8 @@ func TestCommentLineRangeMatchesRenderedContentWithLongAuthor(t *testing.T) {
 		},
 	}
 	page.SelectedCommentIdx = -1
-	page.CommentViewport.Width = 18
-	page.CommentViewport.Height = 6
+	page.CommentViewport.SetWidth(18)
+	page.CommentViewport.SetHeight(6)
 
 	content := stripANSI(page.buildCommentContent(18))
 	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
@@ -223,8 +223,8 @@ func TestMoveCommentSelectionDoesNotAdvanceEarlyWithLongAuthorWrap(t *testing.T)
 		},
 	}
 	page.SelectedCommentIdx = 0
-	page.CommentViewport.Width = 18
-	page.CommentViewport.Height = 6
+	page.CommentViewport.SetWidth(18)
+	page.CommentViewport.SetHeight(6)
 	page.CommentViewport.SetContent(page.buildCommentContent(18))
 
 	firstStart, firstEnd := page.commentLineRangeAt(0)
@@ -252,8 +252,8 @@ func TestBuildCommentContentSelectedCommentDoesNotInsertBlankLines(t *testing.T)
 		},
 	}
 	page.SelectedCommentIdx = 0
-	page.CommentViewport.Width = 32
-	page.CommentViewport.Height = 8
+	page.CommentViewport.SetWidth(32)
+	page.CommentViewport.SetHeight(8)
 
 	lines := strings.Split(strings.TrimRight(stripANSI(page.buildCommentContent(32)), "\n"), "\n")
 	for i, line := range lines {
@@ -275,8 +275,8 @@ func TestBuildCommentContentSelectedQuoteStaysOnOneLineWhenItFits(t *testing.T) 
 		},
 	}
 	page.SelectedCommentIdx = 0
-	page.CommentViewport.Width = 28
-	page.CommentViewport.Height = 6
+	page.CommentViewport.SetWidth(28)
+	page.CommentViewport.SetHeight(6)
 
 	lines := strings.Split(strings.TrimRight(stripANSI(page.buildCommentContent(28)), "\n"), "\n")
 	foundQuote := false
@@ -307,8 +307,8 @@ func TestMoveCommentSelectionDoesNotLoopBackToHeaderAtCommentEnd(t *testing.T) {
 		},
 	}
 	page.SelectedCommentIdx = 0
-	page.CommentViewport.Width = 32
-	page.CommentViewport.Height = 6
+	page.CommentViewport.SetWidth(32)
+	page.CommentViewport.SetHeight(6)
 	page.CommentViewport.SetContent(page.buildCommentContent(32))
 
 	start, end := page.commentLineRangeAt(0)
@@ -336,8 +336,8 @@ func TestMoveCommentSelectionDoesNotLoopBackToHeaderAtCommentEnd(t *testing.T) {
 
 func TestSelectedCommentLineCountMatchesRenderedLinesAtExactWidth(t *testing.T) {
 	page := NewPostsPageModel()
-	page.CommentViewport.Width = 32
-	page.CommentViewport.Height = 6
+	page.CommentViewport.SetWidth(32)
+	page.CommentViewport.SetHeight(6)
 
 	bodyWidth := page.commentBodyTextWidth(32)
 	text := strings.Repeat("x", maxInt(1, bodyWidth-len("Alice: ")))
@@ -383,12 +383,12 @@ func TestHandlePostsKeyCommentScrollDoesNotLoopBackAfterViewportSync(t *testing.
 
 	prevCursor := m.Posts.CommentCursorLine
 	for step := 0; step < 20; step++ {
-		next, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyDown})
+		next, cmd := m.handlePostsKey(keyCode(tea.KeyDown))
 		if cmd != nil {
 			t.Fatalf("down should not emit async command at step %d", step)
 		}
 		if next.Posts.CommentCursorLine < prevCursor {
-			t.Fatalf("cursor regressed after viewport sync at step %d: prev=%d new=%d sel=%d y=%d", step, prevCursor, next.Posts.CommentCursorLine, next.Posts.SelectedCommentIdx, next.Posts.CommentViewport.YOffset)
+			t.Fatalf("cursor regressed after viewport sync at step %d: prev=%d new=%d sel=%d y=%d", step, prevCursor, next.Posts.CommentCursorLine, next.Posts.SelectedCommentIdx, next.Posts.CommentViewport.YOffset())
 		}
 		m = next
 		prevCursor = m.Posts.CommentCursorLine
@@ -409,7 +409,7 @@ func TestHandlePostsKeyQuoteOpensComposerWithSelectedComment(t *testing.T) {
 	}
 	m.Posts.SelectedCommentIdx = 1
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	result, cmd := m.handlePostsKey(keyPress('q'))
 	if cmd != nil {
 		t.Fatal("quote shortcut should not emit async command")
 	}
@@ -441,16 +441,16 @@ func TestHandlePostsKeyCommentPageMoveKeepsSelectionVisible(t *testing.T) {
 			NameTag:   "user",
 		})
 	}
-	m.Posts.CommentViewport.Width = 28
-	m.Posts.CommentViewport.Height = 5
+	m.Posts.CommentViewport.SetWidth(28)
+	m.Posts.CommentViewport.SetHeight(5)
 	m.Posts.CommentViewport.SetContent(m.Posts.buildCommentContent(28))
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyPgDown})
+	result, cmd := m.handlePostsKey(keyCode(tea.KeyPgDown))
 	if cmd != nil {
 		t.Fatal("pgdown should not emit async command without more comments")
 	}
 	start, end := result.Posts.commentLineRangeAt(result.Posts.SelectedCommentIdx)
-	top := result.Posts.CommentViewport.YOffset
+	top := result.Posts.CommentViewport.YOffset()
 	bottom := top + result.Posts.CommentViewport.VisibleLineCount() - 1
 	if end < top || start > bottom {
 		t.Fatalf("selected comment fell outside viewport after pgdown: range=[%d,%d] viewport=[%d,%d]", start, end, top, bottom)
@@ -466,7 +466,7 @@ func TestHandleTagsDialogKeyTwoLevelSelectionAppliesChild(t *testing.T) {
 		{ID: 12, Label: "课程吐槽", ParentID: 1},
 	})
 
-	result, cmd := m.handleTagsDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd := m.handleTagsDialogKey(keyCode(tea.KeyEnter))
 	if cmd != nil {
 		t.Fatal("entering child tag phase should not trigger load command")
 	}
@@ -477,8 +477,8 @@ func TestHandleTagsDialogKeyTwoLevelSelectionAppliesChild(t *testing.T) {
 		t.Fatalf("active tag changed too early: %d", result.Posts.ActiveTagID)
 	}
 
-	result, _ = result.handleTagsDialogKey(tea.KeyMsg{Type: tea.KeyDown})
-	result, cmd = result.handleTagsDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, _ = result.handleTagsDialogKey(keyCode(tea.KeyDown))
+	result, cmd = result.handleTagsDialogKey(keyCode(tea.KeyEnter))
 	if result.Dialog != DialogNone {
 		t.Fatalf("dialog after applying child tag = %v, want none", result.Dialog)
 	}
@@ -541,7 +541,7 @@ func TestPostListMentionLineShortcutsUseMentionedPost(t *testing.T) {
 	}
 	m.Posts.CursorLine = mentionLine
 
-	_, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	_, cmd := m.handlePostsKey(keyPress('p'))
 	if cmd == nil {
 		t.Fatal("p on mention line should emit toggle command")
 	}
@@ -578,7 +578,7 @@ func TestPostListMentionLineEnterOpensMentionedPost(t *testing.T) {
 	}
 	m.Posts.CursorLine = mentionLine
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd := m.handlePostsKey(keyCode(tea.KeyEnter))
 	if cmd == nil {
 		t.Fatal("enter on mention line should load mentioned post detail")
 	}
@@ -619,7 +619,7 @@ func TestComposerSubmitPassesImagePathsToPost(t *testing.T) {
 	m.Composer.input.SetValue("hello")
 	m.Composer.imageInput.SetValue("/tmp/a.jpg\n/tmp/b.png")
 
-	msg := tea.KeyMsg{Type: tea.KeyCtrlS}
+	msg := keyCtrl('s')
 	_, cmd := m.handleComposerKey(msg)
 	if cmd == nil {
 		t.Fatal("ctrl+s should submit composer")

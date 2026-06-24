@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type LogsDialogModel struct {
@@ -57,7 +57,7 @@ func (m *LogsDialogModel) Loading() bool {
 	return m.loading
 }
 
-func (m *LogsDialogModel) Update(msg tea.KeyMsg) tea.Cmd {
+func (m *LogsDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
 	switch msg.String() {
 	case "up":
 		if m.offset > 0 {
@@ -88,11 +88,12 @@ func (m LogsDialogModel) View(width, height int) string {
 	var b strings.Builder
 
 	innerWidth := maxInt(20, width-panelContentStyle.GetHorizontalFrameSize())
+	fill := dialogBackgroundFillStyle()
 
 	if m.loading {
-		b.WriteString(vLoadingStyle.Render("加载日志中..."))
+		b.WriteString(fillRenderedBackground(vLoadingStyle.Render("加载日志中..."), innerWidth, fill))
 	} else if len(m.lines) == 0 {
-		b.WriteString(vEmptyStyle.Render("暂无日志"))
+		b.WriteString(fillRenderedBackground(vEmptyStyle.Render("暂无日志"), innerWidth, fill))
 	} else {
 		visibleLines := maxInt(1, height-3)
 		end := m.offset + visibleLines
@@ -105,21 +106,23 @@ func (m LogsDialogModel) View(width, height int) string {
 			if lipgloss.Width(line) > innerWidth {
 				line = clipToVisibleWidth(line, innerWidth)
 			}
-			b.WriteString(vLogLineStyle.Background(colorBg).Render(line))
+			renderedLine := vLogLineStyle.Background(colorBg).Render(line)
+			b.WriteString(fillRenderedBackground(renderedLine, innerWidth, fill))
 			b.WriteString("\n")
 		}
 
 		b.WriteString("\n")
 		totalLines := len(m.lines)
-		b.WriteString(vPaginationStyle.Render(
+		pagination := vPaginationStyle.Render(
 			fmt.Sprintf("日志: %d 行 | 当前: %d-%d | ↑↓/PgUp/PgDn滚动 | r: 刷新",
 				totalLines, m.offset+1, minInt(end, totalLines)),
-		))
+		)
+		b.WriteString(fillRenderedBackground(pagination, innerWidth, fill))
 	}
 
 	if m.lastErr != "" {
 		b.WriteString("\n")
-		b.WriteString(vErrorStyle.Render("错误: " + m.lastErr))
+		b.WriteString(fillRenderedBackground(vErrorStyle.Render("错误: "+m.lastErr), innerWidth, fill))
 	}
 
 	return renderToolsBodyWithFooter(b.String(), "↑↓/PgUp/PgDn: 滚动 | r: 刷新 | Esc: 关闭", width, height)

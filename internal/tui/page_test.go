@@ -13,8 +13,8 @@ import (
 	"treehole/internal/db"
 	"treehole/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func projectRoot() string {
@@ -121,7 +121,7 @@ func TestViewPostsRealDataOverflow(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	// Should not panic or produce empty output
 	if output == "" {
@@ -159,7 +159,7 @@ func TestViewPostsRealDataMultiLine(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string")
@@ -197,7 +197,7 @@ func TestViewPostsExtremeLongText(t *testing.T) {
 	m.Height = 24
 
 	// Should not panic
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for extreme long text")
@@ -283,7 +283,7 @@ func TestBuildDetailBodyContentWrapsToInnerWidth(t *testing.T) {
 	m.Height = 12
 	m.syncPostsPage()
 
-	contentWidth := m.Posts.PostBodyViewport.Width
+	contentWidth := m.Posts.PostBodyViewport.Width()
 	content, _ := m.Posts.buildDetailBodyContent(contentWidth)
 	lines := strings.Split(strings.TrimRight(stripANSI(content), "\n"), "\n")
 	maxWidth := m.Posts.detailBodyTextWidth(contentWidth) + vPostTextStyle.GetHorizontalFrameSize()
@@ -308,7 +308,7 @@ func TestViewPostsManyNewlines(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for many newlines")
@@ -331,7 +331,7 @@ func TestViewPostsWideTerminal(t *testing.T) {
 	m.Width = 200
 	m.Height = 100 // Very tall to fit all posts even with wrapping
 
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for wide terminal")
@@ -369,7 +369,7 @@ func TestViewPostsNarrowTerminal(t *testing.T) {
 	m.Width = 40
 	m.Height = 12
 
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for narrow terminal")
@@ -389,7 +389,7 @@ func TestViewPostsTinyTerminal(t *testing.T) {
 	m.Height = 5
 
 	// Should not panic
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for tiny terminal")
@@ -416,7 +416,7 @@ func TestViewPostDetailLongText(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for detail view")
@@ -451,7 +451,7 @@ func TestViewPostDetailManyComments(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for many comments")
@@ -479,16 +479,16 @@ func TestScrollToSelectedPostBoundary(t *testing.T) {
 	m.Height = 24
 
 	// Render to initialize viewport
-	m.View()
+	viewString(m)
 
 	// Scroll to last post
 	m.Posts.SelectedPostIdx = 9
 	m.Posts.scrollToSelectedPost()
 
 	// Should not panic
-	m.View()
+	viewString(m)
 
-	t.Logf("Scrolled to last post, viewport YOffset=%d", m.Posts.PostViewport.YOffset)
+	t.Logf("Scrolled to last post, viewport YOffset=%d", m.Posts.PostViewport.YOffset())
 }
 
 func TestAdjustSelectedToViewportBoundary(t *testing.T) {
@@ -505,7 +505,7 @@ func TestAdjustSelectedToViewportBoundary(t *testing.T) {
 	m.Height = 24
 
 	// Render to initialize viewport
-	m.View()
+	viewString(m)
 
 	// Simulate viewport scrolled to bottom
 	m.Posts.PostViewport.GotoBottom()
@@ -529,7 +529,7 @@ func TestFastScrollPgDownBoundary(t *testing.T) {
 	m.Height = 24
 
 	// Render to initialize viewport
-	m.View()
+	viewString(m)
 
 	// Rapid PgDn
 	for i := 0; i < 20; i++ {
@@ -537,12 +537,12 @@ func TestFastScrollPgDownBoundary(t *testing.T) {
 	}
 
 	// Should not panic
-	output := m.View()
+	output := viewString(m)
 	if output == "" {
 		t.Fatal("View() returned empty after rapid PgDn")
 	}
 
-	t.Logf("After 20x PgDn: SelectedPostIdx=%d, YOffset=%d", m.Posts.SelectedPostIdx, m.Posts.PostViewport.YOffset)
+	t.Logf("After 20x PgDn: SelectedPostIdx=%d, YOffset=%d", m.Posts.SelectedPostIdx, m.Posts.PostViewport.YOffset())
 }
 
 func TestFastScrollPgUpBoundary(t *testing.T) {
@@ -559,7 +559,7 @@ func TestFastScrollPgUpBoundary(t *testing.T) {
 	m.Height = 24
 
 	// Render to initialize viewport
-	m.View()
+	viewString(m)
 
 	// Rapid PgUp
 	for i := 0; i < 20; i++ {
@@ -567,7 +567,7 @@ func TestFastScrollPgUpBoundary(t *testing.T) {
 	}
 
 	// Should not panic
-	output := m.View()
+	output := viewString(m)
 	if output == "" {
 		t.Fatal("View() returned empty after rapid PgUp")
 	}
@@ -577,7 +577,7 @@ func TestFastScrollPgUpBoundary(t *testing.T) {
 		t.Errorf("SelectedPostIdx = %d, expected near 0 after 20x PgUp", m.Posts.SelectedPostIdx)
 	}
 
-	t.Logf("After 20x PgUp: SelectedPostIdx=%d, YOffset=%d", m.Posts.SelectedPostIdx, m.Posts.PostViewport.YOffset)
+	t.Logf("After 20x PgUp: SelectedPostIdx=%d, YOffset=%d", m.Posts.SelectedPostIdx, m.Posts.PostViewport.YOffset())
 }
 
 func TestFastScrollMixedBoundary(t *testing.T) {
@@ -594,7 +594,7 @@ func TestFastScrollMixedBoundary(t *testing.T) {
 	m.Height = 24
 
 	// Render to initialize viewport
-	m.View()
+	viewString(m)
 
 	// Mixed: 10x PgDn, 5x PgUp, 15x PgDn, 30x PgUp
 	for i := 0; i < 10; i++ {
@@ -611,7 +611,7 @@ func TestFastScrollMixedBoundary(t *testing.T) {
 	}
 
 	// Should not panic
-	output := m.View()
+	output := viewString(m)
 	if output == "" {
 		t.Fatal("View() returned empty after mixed fast scroll")
 	}
@@ -621,7 +621,7 @@ func TestFastScrollMixedBoundary(t *testing.T) {
 		t.Errorf("SelectedPostIdx = %d, expected near 0 after mixed scroll ending with PgUp", m.Posts.SelectedPostIdx)
 	}
 
-	t.Logf("After mixed scroll: SelectedPostIdx=%d, YOffset=%d", m.Posts.SelectedPostIdx, m.Posts.PostViewport.YOffset)
+	t.Logf("After mixed scroll: SelectedPostIdx=%d, YOffset=%d", m.Posts.SelectedPostIdx, m.Posts.PostViewport.YOffset())
 }
 
 func TestFastScrollKeepsCursorVisible(t *testing.T) {
@@ -636,11 +636,11 @@ func TestFastScrollKeepsCursorVisible(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	m.View()
+	viewString(m)
 
 	for i := 0; i < 8; i++ {
 		m, _ = m.handlePostsKey(keyPgDown())
-		top := m.Posts.PostViewport.YOffset
+		top := m.Posts.PostViewport.YOffset()
 		bottom := top + m.Posts.PostViewport.VisibleLineCount() - 1
 		if m.Posts.CursorLine < top || m.Posts.CursorLine > bottom {
 			t.Fatalf("cursor outside viewport after PgDn: cursor=%d viewport=[%d,%d]", m.Posts.CursorLine, top, bottom)
@@ -649,7 +649,7 @@ func TestFastScrollKeepsCursorVisible(t *testing.T) {
 
 	for i := 0; i < 8; i++ {
 		m, _ = m.handlePostsKey(keyPgUp())
-		top := m.Posts.PostViewport.YOffset
+		top := m.Posts.PostViewport.YOffset()
 		bottom := top + m.Posts.PostViewport.VisibleLineCount() - 1
 		if m.Posts.CursorLine < top || m.Posts.CursorLine > bottom {
 			t.Fatalf("cursor outside viewport after PgUp: cursor=%d viewport=[%d,%d]", m.Posts.CursorLine, top, bottom)
@@ -672,7 +672,7 @@ func TestRefreshClearsState(t *testing.T) {
 	m.Height = 24
 
 	// Render to initialize viewport
-	m.View()
+	viewString(m)
 
 	// Press 'r' to refresh
 	m, _ = m.handlePostsKey(keyR())
@@ -688,7 +688,7 @@ func TestRefreshClearsState(t *testing.T) {
 	}
 
 	// View during loading should show "加载中..."
-	output := m.View()
+	output := viewString(m)
 	if !containsStr(output, "加载中") {
 		t.Error("View() should show '加载中...' during refresh")
 	}
@@ -722,7 +722,7 @@ func TestViewPostsErrorState(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "错误") {
 		t.Error("View() should show error indicator")
@@ -742,7 +742,7 @@ func TestViewPostsLoadingMoreKeepsContentVisible(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "hello world") {
 		t.Error("View() should keep existing post content visible while loading more")
@@ -763,7 +763,7 @@ func TestViewPostsErrorWithPartialData(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	// Should show both data and error
 	if !containsStr(output, "Partial data") {
@@ -785,7 +785,7 @@ func TestViewHomeExtremeStats(t *testing.T) {
 	m.Height = 24
 
 	// Should not panic with large numbers
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string with extreme stats")
@@ -803,7 +803,7 @@ func TestViewPostDetailEmptyPost(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for empty post detail")
@@ -827,7 +827,7 @@ func TestViewPostDetailUnicodeContent(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for unicode content")
@@ -850,7 +850,7 @@ func TestViewPostsManyPosts(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if output == "" {
 		t.Fatal("View() returned empty string for many posts")
@@ -873,7 +873,7 @@ func TestViewPostsScrollThroughAll(t *testing.T) {
 	m.Height = 24
 
 	// Render to initialize viewport
-	m.View()
+	viewString(m)
 
 	// Scroll through all posts
 	for i := 0; i < len(posts)*20 && m.Posts.SelectedPostIdx < len(posts)-1; i++ {
@@ -883,12 +883,12 @@ func TestViewPostsScrollThroughAll(t *testing.T) {
 	if m.Posts.SelectedPostIdx != len(posts)-1 {
 		t.Errorf("SelectedPostIdx = %d, want %d", m.Posts.SelectedPostIdx, len(posts)-1)
 	}
-	if m.Posts.PostViewport.YOffset < 0 {
-		t.Errorf("YOffset = %d, should not be negative", m.Posts.PostViewport.YOffset)
+	if m.Posts.PostViewport.YOffset() < 0 {
+		t.Errorf("YOffset = %d, should not be negative", m.Posts.PostViewport.YOffset())
 	}
 
 	// Should not panic
-	output := m.View()
+	output := viewString(m)
 	if output == "" {
 		t.Fatal("View() returned empty after scrolling through all posts")
 	}
@@ -944,14 +944,14 @@ func TestViewPostsResizeDuringRender(t *testing.T) {
 	m.Height = 24
 
 	// Render at 80x24
-	output1 := m.View()
+	output1 := viewString(m)
 
 	// Resize to 120x40
 	m.Width = 120
 	m.Height = 40
 	m.Posts.postContent = "" // Force content update
 
-	output2 := m.View()
+	output2 := viewString(m)
 
 	if output1 == output2 {
 		t.Log("Output changed after resize (expected due to different dimensions)")
@@ -982,7 +982,7 @@ func TestViewPostsStrippedLines(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	lines := visibleLines(output)
 
 	if len(lines) == 0 {
@@ -1026,7 +1026,7 @@ func TestViewShowsTabBarAtTop(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	lines := visibleLines(m.View())
+	lines := visibleLines(viewString(m))
 	if len(lines) == 0 {
 		t.Fatal("No visible lines after stripping ANSI codes")
 	}
@@ -1042,7 +1042,7 @@ func TestViewLinesDoNotOverflowWidth(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	for i, line := range frameLines(m.View()) {
+	for i, line := range frameLines(viewString(m)) {
 		if lipgloss.Width(line) > m.Width {
 			t.Fatalf("line[%d] width = %d, want <= %d: %q", i, lipgloss.Width(line), m.Width, line)
 		}
@@ -1055,7 +1055,7 @@ func TestViewFrameMatchesConfiguredDimensionsPosts(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	lines := frameLines(m.View())
+	lines := frameLines(viewString(m))
 	if len(lines) != m.Height {
 		t.Fatalf("frame line count = %d, want %d", len(lines), m.Height)
 	}
@@ -1076,7 +1076,7 @@ func TestViewFrameMatchesConfiguredDimensionsHome(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	lines := frameLines(m.View())
+	lines := frameLines(viewString(m))
 	if len(lines) != m.Height {
 		t.Fatalf("frame line count = %d, want %d", len(lines), m.Height)
 	}
@@ -1104,7 +1104,7 @@ func TestViewFrameMatchesConfiguredDimensionsScores(t *testing.T) {
 		})
 	}
 
-	lines := frameLines(m.View())
+	lines := frameLines(viewString(m))
 	if len(lines) != m.Height {
 		t.Fatalf("frame line count = %d, want %d", len(lines), m.Height)
 	}
@@ -1134,7 +1134,7 @@ func TestViewFrameMatchesConfiguredDimensionsDetail(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	lines := frameLines(m.View())
+	lines := frameLines(viewString(m))
 	if len(lines) != m.Height {
 		t.Fatalf("detail frame line count = %d, want %d", len(lines), m.Height)
 	}
@@ -1165,7 +1165,7 @@ func TestViewDetailCommentEmojiLinesLeaveTerminalWrapSlack(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	view := m.View()
+	view := viewString(m)
 	if strings.ContainsRune(view, '\uFE0F') {
 		t.Fatal("view should strip emoji presentation selectors")
 	}
@@ -1216,7 +1216,7 @@ func TestViewDetailUsesAvailableHeight(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	lines := frameLines(m.View())
+	lines := frameLines(viewString(m))
 	footerLine := -1
 	for i, line := range lines {
 		if strings.Contains(line, "OFFLINE") || strings.Contains(line, "ONLINE") {
@@ -1246,7 +1246,7 @@ func TestViewStatusLineShowsNormalPostsMode(t *testing.T) {
 	m.Posts.PostList = []models.Post{{Pid: 1, Text: "hello", Timestamp: 1000}}
 	m.Posts.SelectedPostIdx = 0
 
-	output := stripANSI(m.View())
+	output := stripANSI(viewString(m))
 	expected := []string{"NORMAL", "帖子列表", "1 条", "OFFLINE"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
@@ -1260,7 +1260,7 @@ func TestViewStatusLineShowsLoadingProgress(t *testing.T) {
 	m.Page = PagePosts
 	m.Posts.PostListLoading = true
 
-	output := stripANSI(m.View())
+	output := stripANSI(viewString(m))
 	expected := []string{"NORMAL", "帖子列表", "加载帖子中", "OFFLINE"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
@@ -1276,7 +1276,7 @@ func TestViewStatusLineShowsDetailMode(t *testing.T) {
 	m.Posts.CurrentPost = &models.Post{Pid: 42, Text: "detail", Timestamp: 1000}
 	m.Posts.CommentList = []models.Comment{{Cid: 1, Text: "comment", Timestamp: 1001}}
 
-	output := stripANSI(m.View())
+	output := stripANSI(viewString(m))
 	expected := []string{"DETAIL-CMT", "#42", "评论 1"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
@@ -1290,7 +1290,7 @@ func TestViewStatusLineKeepsClockOnSameLine(t *testing.T) {
 	m.Page = PagePosts
 	m.Posts.PostList = []models.Post{{Pid: 1, Text: "hello", Timestamp: 1000}}
 
-	lines := frameLines(m.View())
+	lines := frameLines(viewString(m))
 	var footer string
 	for _, line := range lines {
 		if strings.Contains(line, "OFFLINE") || strings.Contains(line, "ONLINE") {
@@ -1299,7 +1299,7 @@ func TestViewStatusLineKeepsClockOnSameLine(t *testing.T) {
 		}
 	}
 	if footer == "" {
-		t.Fatalf("missing footer line in output:\n%s", stripANSI(m.View()))
+		t.Fatalf("missing footer line in output:\n%s", stripANSI(viewString(m)))
 	}
 	if !regexp.MustCompile(`\d{2}:\d{2}:\d{2}`).MatchString(footer) {
 		t.Fatalf("expected clock on footer line, got: %q", footer)
@@ -1396,7 +1396,7 @@ func TestViewPostDetailBottomShowsLastCommentWithWrappedShortcut(t *testing.T) {
 	m.syncPostsPage()
 	m.Posts.CommentViewport.GotoBottom()
 
-	output := m.View()
+	output := viewString(m)
 	if !strings.Contains(strings.Join(visibleLines(output), "\n"), "LAST COMMENT") {
 		t.Fatalf("bottom of detail view should show last comment, got:\n%s", output)
 	}
@@ -1411,7 +1411,7 @@ func TestViewHomeStrippedLines(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	lines := visibleLines(output)
 
 	if len(lines) == 0 {
@@ -1457,7 +1457,7 @@ func TestViewPostDetailStrippedLines(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	lines := visibleLines(output)
 
 	allText := strings.Join(lines, " ")
@@ -1485,7 +1485,7 @@ func TestViewPostDetailOmitsBodyHeading(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	lines := visibleLines(output)
 
 	for _, line := range lines {
@@ -1514,7 +1514,7 @@ func TestViewPostDetailCommentFormatMatchesTarget(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	lines := visibleLines(m.View())
+	lines := visibleLines(viewString(m))
 	allText := strings.Join(lines, "\n")
 
 	for _, want := range []string{
@@ -1540,7 +1540,7 @@ func TestViewPostListShowsImagePlaceholder(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	if !strings.Contains(strings.Join(visibleLines(output), "\n"), "[图片]") {
 		t.Fatalf("post list should show image placeholder, got:\n%s", output)
 	}
@@ -1557,7 +1557,7 @@ func TestViewPostDetailShowsImagePlaceholder(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	if !strings.Contains(strings.Join(visibleLines(output), "\n"), "[图片]") {
 		t.Fatalf("post detail should show image placeholder, got:\n%s", output)
 	}
@@ -1577,7 +1577,7 @@ func TestViewPostDetailCommentShowsImagePlaceholder(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	if !strings.Contains(strings.Join(visibleLines(output), "\n"), "[图片]") {
 		t.Fatalf("comment should show image placeholder, got:\n%s", output)
 	}
@@ -1693,7 +1693,7 @@ func TestBuildDetailBodyContentKeepsImagePlaceholder(t *testing.T) {
 	m.Height = 30
 	m.syncPostsPage()
 
-	content, placements := m.Posts.buildDetailBodyContent(m.Posts.PostBodyViewport.Width)
+	content, placements := m.Posts.buildDetailBodyContent(m.Posts.PostBodyViewport.Width())
 	if !strings.Contains(stripANSI(content), "[图片]") {
 		t.Fatalf("detail placeholder should remain, got:\n%s", stripANSI(content))
 	}
@@ -1763,7 +1763,7 @@ func TestViewConfigDialogStrippedLines(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	lines := visibleLines(output)
 
 	allText := strings.Join(lines, " ")
@@ -1787,7 +1787,7 @@ func TestViewHelpDialogStrippedLines(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	lines := visibleLines(output)
 
 	allText := strings.Join(lines, " ")
@@ -1811,7 +1811,7 @@ func TestViewHelpDialogUsesDetailContext(t *testing.T) {
 	m.Width = 140
 	m.Height = 24
 
-	output := strings.Join(visibleLines(m.View()), " ")
+	output := strings.Join(visibleLines(viewString(m)), " ")
 	expected := []string{"帖子详情", "Tab", "切换正文/评论", "s", "切换排序", "q", "引用评论"}
 	for _, want := range expected {
 		if !strings.Contains(output, want) {
@@ -1839,7 +1839,7 @@ func TestViewPostsStrippedLinesWithRealData(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	lines := visibleLines(output)
 
 	// Verify structure
@@ -1907,7 +1907,7 @@ func TestViewNoANSILeakage(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	// Count opening and closing ANSI sequences
 	openCount := strings.Count(output, "\x1b[")
@@ -1981,7 +1981,7 @@ func TestViewStrippedOutputNotEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			output := tt.model.View()
+			output := viewString(tt.model)
 			stripped := stripANSI(output)
 			lines := visibleLines(output)
 
@@ -2057,18 +2057,18 @@ func TestNormalizeRenderedText(t *testing.T) {
 
 // Key helpers
 
-func keyDown() tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyDown}
+func keyDown() tea.KeyPressMsg {
+	return keyCode(tea.KeyDown)
 }
 
-func keyPgDown() tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyPgDown}
+func keyPgDown() tea.KeyPressMsg {
+	return keyCode(tea.KeyPgDown)
 }
 
-func keyPgUp() tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyPgUp}
+func keyPgUp() tea.KeyPressMsg {
+	return keyCode(tea.KeyPgUp)
 }
 
-func keyR() tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
+func keyR() tea.KeyPressMsg {
+	return keyPress('r')
 }

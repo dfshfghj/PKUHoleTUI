@@ -33,7 +33,7 @@ func TestHelpPanelWriteRealFrame(t *testing.T) {
 	}
 	m.Posts.SelectedPostIdx = 2
 
-	output := m.View()
+	output := viewString(m)
 	stripped := stripANSI(output)
 
 	_, filename, _, _ := runtime.Caller(0)

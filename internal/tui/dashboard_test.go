@@ -6,8 +6,6 @@ import (
 
 	"treehole/internal/config"
 	"treehole/internal/models"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestNewModelStartsOnDashboardWithoutRecoveryDialog(t *testing.T) {
@@ -49,19 +47,19 @@ func TestDashboardShortcutsOpenExploreNotificationsAndConfig(t *testing.T) {
 	m := newTestModel()
 	m.Page = PageDashboard
 
-	explore, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	explore, cmd := m.handleKey(keyPress('e'))
 	if explore.Page != PagePosts || cmd == nil {
 		t.Fatal("e should enter posts explore and load posts")
 	}
 
-	notifications, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	notifications, cmd := m.handleKey(keyPress('n'))
 	if notifications.Dialog != DialogTools ||
 		notifications.ToolsDialog.Section() != ToolsSectionInteractive ||
 		cmd == nil {
 		t.Fatal("n should open interactive notifications")
 	}
 
-	configModel, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	configModel, cmd := m.handleKey(keyPress('c'))
 	if configModel.Dialog != DialogTools ||
 		configModel.ToolsDialog.Section() != ToolsSectionConfig ||
 		cmd == nil {

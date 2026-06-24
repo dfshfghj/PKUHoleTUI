@@ -5,7 +5,7 @@ import (
 
 	"treehole/internal/config"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 type ToolsSection int
@@ -59,10 +59,10 @@ func (m *ToolsDialogModel) View(width, height int) string {
 	default:
 		b.WriteString(m.Config.View(width, bodyHeight))
 	}
-	return lipgloss.NewStyle().
+	rendered := lipgloss.NewStyle().
 		Background(colorBg).
-		ColorWhitespace(true).
 		Render(b.String())
+	return preserveBackgroundAfterReset(rendered, colorBg)
 }
 
 func renderToolsBodyWithFooter(body, footer string, width, height int) string {
@@ -72,23 +72,32 @@ func renderToolsBodyWithFooter(body, footer string, width, height int) string {
 	if height < 2 {
 		height = 2
 	}
+	fill := dialogBackgroundFillStyle()
 	bodyHeight := height - 1
+	body = fillRenderedBackground(body, width, fill)
 	body = lipgloss.Place(
 		width,
 		bodyHeight,
 		lipgloss.Left,
 		lipgloss.Top,
 		body,
+		lipgloss.WithWhitespaceStyle(fill),
 	)
 	footer = clipToVisibleWidth(footer, width)
 	footer = vDialogHelpStyle.
 		Padding(0).
 		Width(width).
 		Render(footer)
-	return lipgloss.JoinVertical(lipgloss.Left, body, footer)
+	footer = fillRenderedBackground(footer, width, fill)
+	return preserveBackgroundAfterReset(lipgloss.JoinVertical(lipgloss.Left, body, footer), colorBg)
+}
+
+func dialogBackgroundFillStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Background(colorBg)
 }
 
 func (m ToolsDialogModel) renderTabs() string {
+	fill := dialogBackgroundFillStyle()
 	tabs := []struct {
 		label   string
 		section ToolsSection
@@ -104,7 +113,13 @@ func (m ToolsDialogModel) renderTabs() string {
 		if m.section == tab.section {
 			style = vStatValueStyle
 		}
-		parts = append(parts, style.Render(tab.label))
+		parts = append(parts, style.Background(colorBg).Render(tab.label))
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, parts[0], "  ", parts[1], "  ", parts[2], "  ", parts[3])
+	return parts[0] +
+		fill.Render("  ") +
+		parts[1] +
+		fill.Render("  ") +
+		parts[2] +
+		fill.Render("  ") +
+		parts[3]
 }

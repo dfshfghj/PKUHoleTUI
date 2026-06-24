@@ -6,7 +6,8 @@ import (
 
 	"treehole/internal/config"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestConfigDialogRendersSingleJSONDocument(t *testing.T) {
@@ -29,10 +30,10 @@ func TestConfigDialogVimInsertAndNormalMovement(t *testing.T) {
 	dialog.cursorRow = 0
 	dialog.cursorCol = 0
 
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	dialog.Update(keyPress('l'))
+	dialog.Update(keyPress('i'))
+	dialog.Update(keyPress('X'))
+	dialog.Update(keyCode(tea.KeyEscape))
 
 	if got := dialog.Text(); got != "aXbc" {
 		t.Fatalf("text = %q, want %q", got, "aXbc")
@@ -46,14 +47,14 @@ func TestConfigDialogSupportsOpenDeleteAndDocumentJumps(t *testing.T) {
 	dialog := NewConfigDialog(&config.Config{})
 	dialog.lines = []string{"one", "two"}
 
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyEscape})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	dialog.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	dialog.Update(keyPress('G'))
+	dialog.Update(keyPress('o'))
+	dialog.Update(keyPress('x'))
+	dialog.Update(keyCode(tea.KeyEscape))
+	dialog.Update(keyPress('0'))
+	dialog.Update(keyPress('x'))
+	dialog.Update(keyPress('g'))
+	dialog.Update(keyPress('g'))
 
 	if dialog.cursorRow != 0 {
 		t.Fatalf("gg cursor row = %d, want 0", dialog.cursorRow)
@@ -86,14 +87,17 @@ func TestConfigDialogCursorRemainsVisibleOnBlankCell(t *testing.T) {
 	dialog.cursorRow = 0
 	dialog.cursorCol = 0
 
-	dialog.Update(tea.KeyMsg{Type: tea.KeyDown})
+	dialog.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if dialog.cursorRow != 1 || dialog.cursorCol != 0 {
 		t.Fatalf("cursor = %d:%d, want 1:0", dialog.cursorRow, dialog.cursorCol)
 	}
 
-	output := renderOpaquePanelBlanks(dialog.View(60, 12))
-	if !strings.Contains(stripANSI(output), "█") {
-		t.Fatalf("blank-cell cursor was swallowed by background fill:\n%s", stripANSI(output))
+	output := dialog.View(60, 12)
+	if strings.Contains(stripANSI(output), "█") {
+		t.Fatalf("blank-cell cursor should render as highlighted space, not a full block:\n%s", stripANSI(output))
+	}
+	if !strings.Contains(output, paintedCursorSpace()) {
+		t.Fatalf("blank-cell cursor should carry accent background:\n%q", output)
 	}
 }
 
@@ -101,9 +105,42 @@ func TestConfigDialogCursorRemainsVisibleAtEmptyLineEnd(t *testing.T) {
 	dialog := NewConfigDialog(nil)
 	dialog.lines = []string{""}
 
-	output := renderOpaquePanelBlanks(dialog.View(60, 12))
-	if !strings.Contains(stripANSI(output), "█") {
-		t.Fatalf("empty-line cursor is not visible:\n%s", stripANSI(output))
+	output := dialog.View(60, 12)
+	if strings.Contains(stripANSI(output), "█") {
+		t.Fatalf("empty-line cursor should render as highlighted space, not a full block:\n%s", stripANSI(output))
+	}
+	if !strings.Contains(output, paintedCursorSpace()) {
+		t.Fatalf("empty-line cursor should carry accent background:\n%q", output)
+	}
+}
+
+func paintedCursorSpace() string {
+	cursor := lipgloss.NewStyle().
+		Background(colorAccent).
+		Foreground(colorAccentText).
+		Render(" ")
+	return strings.TrimSuffix(preserveBackgroundAfterReset(cursor, colorBg), resetWithBackground(colorBg))
+}
+
+func TestConfigDialogPaintsEditorSeparatorsAndTrailingBlanks(t *testing.T) {
+	dialog := NewConfigDialog(nil)
+	dialog.lines = []string{"{"}
+
+	output := dialog.View(40, 8)
+	fill := dialogBackgroundFillStyle()
+	if !strings.Contains(output, preserveBackgroundAfterReset(fill.Render(" │ "), colorBg)) {
+		t.Fatalf("config separator should carry dialog background:\n%q", output)
+	}
+	for i, line := range strings.Split(output, "\n") {
+		if i > 0 {
+			break
+		}
+		if got := lipgloss.Width(line); got != 40 {
+			t.Fatalf("config editor line width = %d, want 40:\n%q", got, line)
+		}
+		if !strings.Contains(line, paintedDialogSpaces(4)) {
+			t.Fatalf("config editor trailing blanks should carry dialog background:\n%q", line)
+		}
 	}
 }
 

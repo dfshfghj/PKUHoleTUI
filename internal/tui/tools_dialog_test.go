@@ -28,6 +28,37 @@ func TestToolsDialogFlattensNotificationTypesIntoPrimaryTabs(t *testing.T) {
 	}
 }
 
+func TestToolsDialogPaintsTabSeparators(t *testing.T) {
+	dialog := NewToolsDialog(&config.Config{})
+	dialog.Switch(ToolsSectionInteractive)
+
+	output := dialog.renderTabs()
+	if strings.Contains(output, "\x1b[m  ") {
+		t.Fatalf("tab separators should not be plain spaces after a style reset:\n%q", output)
+	}
+	if !strings.Contains(output, paintedDialogSpaces(2)) {
+		t.Fatalf("tab separators should carry dialog background:\n%q", output)
+	}
+}
+
+func TestToolsDialogViewPreservesBackgroundAfterInlineResets(t *testing.T) {
+	dialog := NewToolsDialog(&config.Config{})
+	dialog.Switch(ToolsSectionInteractive)
+	dialog.Notifications.SetNotifications(models.NotificationTypeInteractive, []models.Notification{
+		{ID: 1, PID: 42, Content: "reply", CreatedAt: "2026-04-08 15:27:19"},
+	}, 1)
+
+	output := dialog.View(80, 20)
+	for _, resetLeak := range []string{
+		"\x1b[m  ",
+		"●\x1b[m  #",
+	} {
+		if strings.Contains(output, resetLeak) {
+			t.Fatalf("tools dialog view should preserve dialog background after inline reset %q:\n%q", resetLeak, output)
+		}
+	}
+}
+
 func TestToolsDialogLogsDoNotRepeatTitle(t *testing.T) {
 	dialog := NewToolsDialog(&config.Config{})
 	dialog.Switch(ToolsSectionLogs)
@@ -65,18 +96,5 @@ func TestToolsDialogOmitsRedundantTitle(t *testing.T) {
 	output := stripANSI(dialog.View(60, 20))
 	if strings.Contains(output, "工具") {
 		t.Fatalf("tools title should be omitted:\n%s", output)
-	}
-}
-
-func TestRenderOpaquePanelBlanksReplacesEverySpace(t *testing.T) {
-	output := renderOpaquePanelBlanks("a  b")
-	if strings.Contains(output, " ") {
-		t.Fatalf("opaque panel output still contains transparent spaces: %q", output)
-	}
-	if strings.Count(stripANSI(output), "\u00a0") != 2 {
-		t.Fatalf("opaque blank count mismatch: %q", stripANSI(output))
-	}
-	if !strings.Contains(output, "\x1b[48;2;") {
-		t.Fatalf("opaque blanks must carry an explicit background: %q", output)
 	}
 }

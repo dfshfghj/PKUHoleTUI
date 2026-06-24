@@ -17,7 +17,7 @@ import (
 	"treehole/internal/db"
 	"treehole/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type clearToastMsg struct{}
@@ -49,7 +49,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
 	case TickMsg:
@@ -372,7 +372,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if msg.String() == "esc" &&
 		m.Dialog != DialogNone &&
 		m.Dialog != DialogSessionPrompt &&
@@ -487,7 +487,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleHomeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) handleHomeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	action := m.Home.Update(msg)
 	switch action {
 	case HomeActionStartCrawler:
@@ -507,7 +507,7 @@ func (m Model) handleHomeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleScheduleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) handleScheduleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if msg.String() == "r" {
 		m.Schedule.Loading = true
 		m.Schedule.Error = ""
@@ -516,7 +516,7 @@ func (m Model) handleScheduleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleScoresKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) handleScoresKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch msg.String() {
 	case "r":
 		m.Scores.Loading = true
@@ -534,14 +534,14 @@ func (m Model) handleScoresKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if m.Posts.Searching {
 		if m.Posts.SearchField.Value() != m.Posts.SearchInput {
 			m.Posts.SearchField.SetValue(m.Posts.SearchInput)
 		}
 		if !m.Posts.SearchField.Focused() {
 			_ = m.Posts.SearchField.Focus()
-			switch msg.Type {
+			switch msg.Code {
 			case tea.KeyLeft:
 				if pos := m.Posts.SearchField.Position(); pos > 0 {
 					m.Posts.SearchField.SetCursor(pos - 1)
@@ -556,7 +556,7 @@ func (m Model) handlePostsKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		switch msg.Type {
+		switch msg.Code {
 		case tea.KeyEscape:
 			return m.cancelSearchInput()
 		case tea.KeyEnter:
@@ -807,13 +807,13 @@ func (m *Model) syncPostsPage() {
 	m.Posts.syncViewports(m.Width, m.contentAreaHeightForSize(m.Width, m.Height))
 }
 
-func (m Model) handleToolsDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape &&
+func (m Model) handleToolsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	if msg.Code == tea.KeyEscape &&
 		(m.ToolsDialog.Section() != ToolsSectionConfig || m.ToolsDialog.Config.Mode() == ConfigEditorNormal) {
 		m.Dialog = DialogNone
 		return m, nil
 	}
-	if m.ToolsDialog.Section() == ToolsSectionConfig && msg.Type == tea.KeyCtrlS {
+	if m.ToolsDialog.Section() == ToolsSectionConfig && msg.String() == "ctrl+s" {
 		cfg, err := m.ToolsDialog.Config.ToConfig()
 		if err != nil {
 			m.ToolsDialog.Config.SetSaveResult(err)
@@ -875,7 +875,7 @@ func (m Model) handleToolsDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleImageDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+func (m Model) handleImageDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.Dialog = DialogNone
@@ -888,12 +888,12 @@ func (m Model) handleImageDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleSessionDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape {
+func (m Model) handleSessionDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	if msg.Code == tea.KeyEscape {
 		m.Dialog = DialogNone
 		return m, nil
 	}
-	if msg.Type == tea.KeyEnter {
+	if msg.Code == tea.KeyEnter {
 		switch m.SessionDialog.SelectedOption() {
 		case "打开配置":
 			m.Dialog = DialogTools
@@ -957,8 +957,8 @@ func (m Model) currentImageSelection() (string, []resolvedMedia) {
 	return title, resolvePostMediaPathsWithClient(m.Client, post.Pid, post.Type, post.MediaIds, true)
 }
 
-func (m Model) handleAuthChallengeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape {
+func (m Model) handleAuthChallengeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	if msg.Code == tea.KeyEscape {
 		reason := m.Session.ChallengeMessage
 		if reason == "" {
 			reason = m.Session.Message
@@ -975,7 +975,7 @@ func (m Model) handleAuthChallengeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.AuthDialog.MarkSMSSent()
 		return m, sendSMSChallengeCmd(m.Client)
 	}
-	if msg.Type == tea.KeyEnter {
+	if msg.Code == tea.KeyEnter {
 		if m.AuthDialog.Kind() == AuthChallengeTypeSMS && m.AuthDialog.IsSendFocused() {
 			m.AuthDialog.SetSubmitting(true)
 			m.AuthDialog.SetError(nil)
@@ -1014,8 +1014,8 @@ func (m Model) handleAuthChallengeKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) handleComposerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape {
+func (m Model) handleComposerKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	if msg.Code == tea.KeyEscape {
 		m.Dialog = DialogNone
 		return m, nil
 	}
@@ -1035,8 +1035,8 @@ func (m Model) handleComposerKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) handleTagsDialogKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	if msg.Type == tea.KeyEscape {
+func (m Model) handleTagsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	if msg.Code == tea.KeyEscape {
 		m.Dialog = DialogNone
 		return m, nil
 	}

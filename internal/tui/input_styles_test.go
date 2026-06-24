@@ -4,33 +4,35 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 func TestNewSearchInputUsesSurfaceBackgroundForPlaceholderAndText(t *testing.T) {
 	input := newSearchInput()
+	styles := input.Styles()
 
-	if got := input.PlaceholderStyle.GetBackground(); got != colorSurface {
+	if got := styles.Focused.Placeholder.GetBackground(); got != colorSurface {
 		t.Fatalf("search placeholder background = %v, want %v", got, colorSurface)
 	}
-	if got := input.TextStyle.GetBackground(); got != colorSurface {
+	if got := styles.Focused.Text.GetBackground(); got != colorSurface {
 		t.Fatalf("search text background = %v, want %v", got, colorSurface)
 	}
-	if got := input.PromptStyle.GetBackground(); got != colorSurface {
+	if got := styles.Focused.Prompt.GetBackground(); got != colorSurface {
 		t.Fatalf("search prompt background = %v, want %v", got, colorSurface)
 	}
 }
 
 func TestNewComposerDialogUsesPanelBackgroundForPlaceholderAndText(t *testing.T) {
 	dialog := NewComposerDialog()
+	styles := dialog.input.Styles()
 
-	if got := dialog.input.FocusedStyle.Placeholder.GetBackground(); got != colorBg {
+	if got := styles.Focused.Placeholder.GetBackground(); got != colorBg {
 		t.Fatalf("composer placeholder background = %v, want %v", got, colorBg)
 	}
-	if got := dialog.input.FocusedStyle.Text.GetBackground(); got != colorBg {
+	if got := styles.Focused.Text.GetBackground(); got != colorBg {
 		t.Fatalf("composer text background = %v, want %v", got, colorBg)
 	}
-	if got := dialog.input.FocusedStyle.Base.GetBackground(); got != colorBg {
+	if got := styles.Focused.Base.GetBackground(); got != colorBg {
 		t.Fatalf("composer base background = %v, want %v", got, colorBg)
 	}
 }

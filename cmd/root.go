@@ -14,7 +14,7 @@ import (
 	"treehole/internal/db"
 	"treehole/internal/tui"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -113,7 +113,7 @@ func runTUI() error {
 
 	model := tui.NewModel(database, client, cfg, session)
 	model.Images = tui.NewKittyImageRenderer()
-	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	opts := []tea.ProgramOption{}
 
 	capture, err := tui.NewCaptureSink(tuiCaptureDir)
 	if err != nil {

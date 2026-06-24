@@ -5,7 +5,7 @@ import (
 
 	"treehole/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestTagsDialogEnterBackAndSelectedTag(t *testing.T) {
@@ -24,7 +24,7 @@ func TestTagsDialogEnterBackAndSelectedTag(t *testing.T) {
 		t.Fatal("enter on parent with children should drill into child phase")
 	}
 
-	dialog.Update(tea.KeyMsg{Type: tea.KeyDown})
+	dialog.Update(keyCode(tea.KeyDown))
 	tag := dialog.SelectedTag()
 	if tag == nil || tag.ID != 12 {
 		t.Fatalf("selected child = %+v, want child #12", tag)

@@ -1,24 +1,32 @@
 package tui
 
 import (
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/lipgloss/v2"
 )
 
-func styleTextInput(input *textinput.Model, bg, textColor, placeholderColor lipgloss.TerminalColor) {
+func styleTextInput(input *textinput.Model, bg, textColor, placeholderColor color.Color) {
 	base := lipgloss.NewStyle().Background(bg)
-	input.PromptStyle = base
-	input.TextStyle = base.Foreground(textColor)
-	input.PlaceholderStyle = base.Foreground(placeholderColor)
-	input.CompletionStyle = base.Foreground(placeholderColor)
+	styles := input.Styles()
+	styles.Focused.Prompt = base
+	styles.Focused.Text = base.Foreground(textColor)
+	styles.Focused.Placeholder = base.Foreground(placeholderColor)
+	styles.Focused.Suggestion = base.Foreground(placeholderColor)
+	styles.Blurred.Prompt = base
+	styles.Blurred.Text = base.Foreground(textColor)
+	styles.Blurred.Placeholder = base.Foreground(placeholderColor)
+	styles.Blurred.Suggestion = base.Foreground(placeholderColor)
+	input.SetStyles(styles)
 }
 
-func styleTextarea(input *textarea.Model, bg, textColor, placeholderColor lipgloss.TerminalColor) {
+func styleTextarea(input *textarea.Model, bg, textColor, placeholderColor color.Color) {
 	base := lipgloss.NewStyle().Background(bg)
-	focused := input.FocusedStyle
+	styles := input.Styles()
+	focused := styles.Focused
 	focused.Base = base
 	focused.CursorLine = lipgloss.NewStyle().Background(bg)
 	focused.EndOfBuffer = base.Foreground(textColor)
@@ -26,7 +34,7 @@ func styleTextarea(input *textarea.Model, bg, textColor, placeholderColor lipglo
 	focused.Prompt = base.Foreground(textColor)
 	focused.Text = base.Foreground(textColor)
 
-	blurred := input.BlurredStyle
+	blurred := styles.Blurred
 	blurred.Base = base
 	blurred.CursorLine = lipgloss.NewStyle().Background(bg)
 	blurred.EndOfBuffer = base.Foreground(textColor)
@@ -34,10 +42,11 @@ func styleTextarea(input *textarea.Model, bg, textColor, placeholderColor lipglo
 	blurred.Prompt = base.Foreground(textColor)
 	blurred.Text = base.Foreground(textColor)
 
-	input.FocusedStyle = focused
-	input.BlurredStyle = blurred
+	styles.Focused = focused
+	styles.Blurred = blurred
+	input.SetStyles(styles)
 	if input.Focused() {
-		input.Focus()
+		_ = input.Focus()
 	} else {
 		input.Blur()
 	}

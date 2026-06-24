@@ -6,7 +6,7 @@ import (
 
 	"treehole/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type tagsDialogPhase int
@@ -80,7 +80,7 @@ func (m TagsDialogModel) phaseName() string {
 	return "标签分类"
 }
 
-func (m *TagsDialogModel) Update(msg tea.KeyMsg) {
+func (m *TagsDialogModel) Update(msg tea.KeyPressMsg) {
 	switch msg.String() {
 	case "left", "h", "backspace":
 		if m.phase == tagsPhaseChildren {

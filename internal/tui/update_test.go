@@ -8,13 +8,13 @@ import (
 	"treehole/internal/config"
 	"treehole/internal/models"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 )
 
 func newTestModel() Model {
-	pv := viewport.New(80, 20)
-	cv := viewport.New(80, 20)
+	pv := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
+	cv := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
 	posts := NewPostsPageModel()
 	posts.PostViewport = &pv
 	posts.CommentViewport = &cv
@@ -165,7 +165,7 @@ func TestHandlePostsKeyToggleCommentSortInDetail(t *testing.T) {
 		{Cid: 1, Text: "Comment 1", Timestamp: 1000},
 	}
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	result, cmd := m.handlePostsKey(keyPress('s'))
 	m = result
 
 	if cmd == nil {
@@ -269,7 +269,7 @@ func TestUpdateTickMsg(t *testing.T) {
 func TestHandleKeyQuit(t *testing.T) {
 	m := newTestModel()
 
-	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlQ})
+	result, cmd := m.handleKey(keyCtrl('q'))
 	m = result
 
 	if cmd == nil {
@@ -280,7 +280,7 @@ func TestHandleKeyQuit(t *testing.T) {
 func TestHandleKeyQDoesNotQuitOutsideDetail(t *testing.T) {
 	m := newTestModel()
 
-	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	result, cmd := m.handleKey(keyPress('q'))
 	m = result
 
 	if cmd != nil {
@@ -292,7 +292,7 @@ func TestHandleKeyQuitInDialog(t *testing.T) {
 	m := newTestModel()
 	m.Dialog = DialogHelp
 
-	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	result, cmd := m.handleKey(keyPress('q'))
 	m = result
 
 	if cmd != nil {
@@ -306,7 +306,7 @@ func TestHandleKeyQuitInDialog(t *testing.T) {
 func TestHandleKeyOpenConfig(t *testing.T) {
 	m := newTestModel()
 
-	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	result, cmd := m.handleKey(keyPress('c'))
 	m = result
 
 	if m.Dialog != DialogTools || m.ToolsDialog.Section() != ToolsSectionConfig {
@@ -320,7 +320,7 @@ func TestHandleKeyOpenConfig(t *testing.T) {
 func TestHandleKeyOpenLogs(t *testing.T) {
 	m := newTestModel()
 
-	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	result, cmd := m.handleKey(keyPress('l'))
 	m = result
 
 	if m.Dialog != DialogTools || m.ToolsDialog.Section() != ToolsSectionLogs {
@@ -338,7 +338,7 @@ func TestHandleKeyOpenNotifications(t *testing.T) {
 	m := newTestModel()
 	m.Client = &client.Client{}
 
-	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	result, cmd := m.handleKey(keyPress('b'))
 	m = result
 
 	if m.Dialog != DialogTools || m.ToolsDialog.Section() != ToolsSectionInteractive {
@@ -357,19 +357,19 @@ func TestToolsDialogSwitchesSectionsWithoutNestedTabs(t *testing.T) {
 	m.Dialog = DialogTools
 	m.ToolsDialog.Switch(ToolsSectionConfig)
 
-	result, cmd := m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	result, cmd := m.handleToolsDialogKey(keyPress('2'))
 	if result.ToolsDialog.Section() != ToolsSectionLogs || cmd == nil {
 		t.Fatal("2 should switch to logs and load them")
 	}
-	result, cmd = result.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	result, cmd = result.handleToolsDialogKey(keyPress('3'))
 	if result.ToolsDialog.Section() != ToolsSectionInteractive || cmd == nil {
 		t.Fatal("3 should switch to notifications and load them")
 	}
-	result, cmd = result.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	result, cmd = result.handleToolsDialogKey(keyPress('1'))
 	if result.ToolsDialog.Section() != ToolsSectionConfig || cmd != nil {
 		t.Fatal("1 should return to the existing config buffer without reloading it")
 	}
-	result, cmd = result.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	result, cmd = result.handleToolsDialogKey(keyPress('4'))
 	if result.ToolsDialog.Section() != ToolsSectionSystem ||
 		result.ToolsDialog.Notifications.MessageType() != models.NotificationTypeSystem ||
 		cmd == nil {
@@ -382,9 +382,9 @@ func TestToolsDialogDoesNotSwitchSectionsWhileInsertingJSON(t *testing.T) {
 	m.Dialog = DialogTools
 	m.ToolsDialog.Switch(ToolsSectionConfig)
 	m.ToolsDialog.Config.lines = []string{""}
-	m.ToolsDialog.Config.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	m.ToolsDialog.Config.Update(keyPress('i'))
 
-	result, _ := m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	result, _ := m.handleToolsDialogKey(keyPress('2'))
 	if result.ToolsDialog.Section() != ToolsSectionConfig {
 		t.Fatal("section shortcut must be inserted as text in insert mode")
 	}
@@ -397,13 +397,13 @@ func TestToolsDialogEscapeLeavesInsertBeforeClosing(t *testing.T) {
 	m := newTestModel()
 	m.Dialog = DialogTools
 	m.ToolsDialog.Switch(ToolsSectionConfig)
-	m.ToolsDialog.Config.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	m.ToolsDialog.Config.Update(keyPress('i'))
 
-	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+	result, _ := m.handleKey(keyCode(tea.KeyEscape))
 	if result.Dialog != DialogTools || result.ToolsDialog.Config.Mode() != ConfigEditorNormal {
 		t.Fatal("first Esc should leave insert mode and keep the tools dialog open")
 	}
-	result, _ = result.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+	result, _ = result.handleKey(keyCode(tea.KeyEscape))
 	if result.Dialog != DialogNone {
 		t.Fatal("second Esc should close the tools dialog")
 	}
@@ -418,7 +418,7 @@ func TestHandleNotificationDialogSingleReadOnlyForInteractiveMessages(t *testing
 		{ID: 10, Content: "reply"},
 	}, 1)
 
-	result, cmd := m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd := m.handleToolsDialogKey(keyCode(tea.KeyEnter))
 	if cmd == nil || !result.ToolsDialog.Notifications.action {
 		t.Fatal("interactive Enter should start a single-read action")
 	}
@@ -426,7 +426,7 @@ func TestHandleNotificationDialogSingleReadOnlyForInteractiveMessages(t *testing
 	result.ToolsDialog.Notifications.SetNotifications(models.NotificationTypeSystem, []models.Notification{
 		{ID: 11, Content: "system"},
 	}, 1)
-	result, cmd = result.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd = result.handleToolsDialogKey(keyCode(tea.KeyEnter))
 	if cmd != nil {
 		t.Fatal("system Enter must not call the single-read endpoint")
 	}
@@ -440,7 +440,7 @@ func TestUpdateNotificationActionMarksRequestedNotificationRead(t *testing.T) {
 		{ID: 10, Content: "first"},
 		{ID: 11, Content: "second"},
 	}, 2)
-	m.ToolsDialog.Notifications.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.ToolsDialog.Notifications.Update(keyCode(tea.KeyDown))
 
 	result, _ := m.Update(NotificationActionMsg{
 		MessageType: models.NotificationTypeInteractive,
@@ -458,7 +458,7 @@ func TestUpdateNotificationActionMarksRequestedNotificationRead(t *testing.T) {
 func TestHandleKeyOpenHelp(t *testing.T) {
 	m := newTestModel()
 
-	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	result, cmd := m.handleKey(keyPress('h'))
 	m = result
 
 	if m.Dialog != DialogHelp {
@@ -475,7 +475,7 @@ func TestHandleKeyOpenHelpInDetail(t *testing.T) {
 	m.Posts.ShowPostDetail = true
 	m.Posts.CurrentPost = &models.Post{Pid: 42, Text: "detail", Timestamp: 1000}
 
-	result, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	result, cmd := m.handleKey(keyPress('h'))
 	m = result
 
 	if m.Dialog != DialogHelp {
@@ -491,7 +491,7 @@ func TestHandleKeyTabSwitch(t *testing.T) {
 	m.Page = PagePosts
 	m.TabCursor = 1
 
-	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	result, _ := m.handleKey(keyCode(tea.KeyTab))
 	m = result
 
 	if m.Page != PageSchedule {
@@ -507,7 +507,7 @@ func TestHandleKeyTabSwitchBack(t *testing.T) {
 	m.Page = PageScores
 	m.TabCursor = 3
 
-	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	result, _ := m.handleKey(keyCode(tea.KeyTab))
 	m = result
 
 	if m.Page != PageHome {
@@ -524,7 +524,7 @@ func TestHandleHomeKeyStartCrawler(t *testing.T) {
 	m.Home.CrawlerState = CrawlerStopped
 	m.Home.HomeButtonIdx = 0
 
-	result, cmd := m.handleHomeKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd := m.handleHomeKey(keyCode(tea.KeyEnter))
 	m = result
 
 	if m.Home.CrawlerState != CrawlerRunning {
@@ -541,7 +541,7 @@ func TestHandleHomeKeyStopCrawler(t *testing.T) {
 	m.Home.CrawlerState = CrawlerRunning
 	m.Home.HomeButtonIdx = 1
 
-	result, _ := m.handleHomeKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, _ := m.handleHomeKey(keyCode(tea.KeyEnter))
 	m = result
 
 	if m.Home.CrawlerState != CrawlerStopped {
@@ -555,7 +555,7 @@ func TestHandleHomeKeyToggleMode(t *testing.T) {
 	m.Home.HomeButtonIdx = 2
 	m.Home.CrawlMode = CrawlSequential
 
-	result, _ := m.handleHomeKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, _ := m.handleHomeKey(keyCode(tea.KeyEnter))
 	m = result
 
 	if m.Home.CrawlMode != CrawlMonitor {
@@ -568,32 +568,32 @@ func TestHandleHomeKeyButtonNavigation(t *testing.T) {
 	m.Page = PageHome
 	m.Home.HomeButtonIdx = 0
 
-	m, _ = m.handleHomeKey(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.handleHomeKey(keyCode(tea.KeyRight))
 	if m.Home.HomeButtonIdx != 1 {
 		t.Errorf("HomeButtonIdx = %d, want 1", m.Home.HomeButtonIdx)
 	}
 
-	m, _ = m.handleHomeKey(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.handleHomeKey(keyCode(tea.KeyRight))
 	if m.Home.HomeButtonIdx != 2 {
 		t.Errorf("HomeButtonIdx = %d, want 2", m.Home.HomeButtonIdx)
 	}
 
-	m, _ = m.handleHomeKey(tea.KeyMsg{Type: tea.KeyRight})
+	m, _ = m.handleHomeKey(keyCode(tea.KeyRight))
 	if m.Home.HomeButtonIdx != 2 {
 		t.Errorf("HomeButtonIdx should stay at 2, got %d", m.Home.HomeButtonIdx)
 	}
 
-	m, _ = m.handleHomeKey(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.handleHomeKey(keyCode(tea.KeyLeft))
 	if m.Home.HomeButtonIdx != 1 {
 		t.Errorf("HomeButtonIdx = %d, want 1", m.Home.HomeButtonIdx)
 	}
 
-	m, _ = m.handleHomeKey(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.handleHomeKey(keyCode(tea.KeyLeft))
 	if m.Home.HomeButtonIdx != 0 {
 		t.Errorf("HomeButtonIdx = %d, want 0", m.Home.HomeButtonIdx)
 	}
 
-	m, _ = m.handleHomeKey(tea.KeyMsg{Type: tea.KeyLeft})
+	m, _ = m.handleHomeKey(keyCode(tea.KeyLeft))
 	if m.Home.HomeButtonIdx != 0 {
 		t.Errorf("HomeButtonIdx should stay at 0, got %d", m.Home.HomeButtonIdx)
 	}
@@ -602,7 +602,7 @@ func TestHandleHomeKeyButtonNavigation(t *testing.T) {
 func TestHandlePostsKeySearch(t *testing.T) {
 	m := newTestModel()
 
-	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	result, _ := m.handlePostsKey(keyPress('/'))
 	m = result
 
 	if !m.Posts.Searching {
@@ -617,14 +617,14 @@ func TestHandlePostsKeySearchInput(t *testing.T) {
 	m := newTestModel()
 	m.Posts.Searching = true
 
-	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	result, _ := m.handlePostsKey(keyPress('t'))
 	m = result
 
 	if m.Posts.SearchInput != "t" {
 		t.Errorf("SearchInput = %s, want 't'", m.Posts.SearchInput)
 	}
 
-	result, _ = m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	result, _ = m.handlePostsKey(keyPress('e'))
 	m = result
 
 	if m.Posts.SearchInput != "te" {
@@ -639,8 +639,8 @@ func TestHandlePostsKeySearchInputAllowsCursorMovement(t *testing.T) {
 	m.Posts.SearchField.SetValue("abc")
 	m.Posts.SearchInput = "abc"
 
-	m, _ = m.handlePostsKey(tea.KeyMsg{Type: tea.KeyLeft})
-	m, _ = m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
+	m, _ = m.handlePostsKey(keyCode(tea.KeyLeft))
+	m, _ = m.handlePostsKey(keyPress('X'))
 
 	if got := m.Posts.SearchInput; got != "abXc" {
 		t.Fatalf("SearchInput after cursor edit = %q, want %q", got, "abXc")
@@ -652,7 +652,7 @@ func TestHandlePostsKeySearchBackspace(t *testing.T) {
 	m.Posts.Searching = true
 	m.Posts.SearchInput = "test"
 
-	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	result, _ := m.handlePostsKey(keyCode(tea.KeyBackspace))
 	m = result
 
 	if m.Posts.SearchInput != "tes" {
@@ -667,7 +667,7 @@ func TestHandlePostsKeySearchCancel(t *testing.T) {
 	m.Posts.SearchActive = true
 	m.Posts.PostsMode = PostsModeSearchInput
 
-	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyEscape})
+	result, _ := m.handlePostsKey(keyCode(tea.KeyEscape))
 	m = result
 
 	if m.Posts.Searching {
@@ -697,32 +697,32 @@ func TestHandlePostsKeyNavigation(t *testing.T) {
 	m.Posts.SelectedPostIdx = 1
 	m.syncPostsPage()
 
-	m, _ = m.handlePostsKey(tea.KeyMsg{Type: tea.KeyUp})
+	m, _ = m.handlePostsKey(keyCode(tea.KeyUp))
 	if m.Posts.SelectedPostIdx != 0 {
 		t.Errorf("SelectedPostIdx = %d, want 0", m.Posts.SelectedPostIdx)
 	}
 
-	m, _ = m.handlePostsKey(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.handlePostsKey(keyCode(tea.KeyDown))
 	if m.Posts.SelectedPostIdx != 1 {
 		t.Errorf("SelectedPostIdx = %d, want 1", m.Posts.SelectedPostIdx)
 	}
 
-	m, _ = m.handlePostsKey(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.handlePostsKey(keyCode(tea.KeyDown))
 	if m.Posts.SelectedPostIdx != 1 {
 		t.Errorf("SelectedPostIdx = %d, want 1 while still inside the same post", m.Posts.SelectedPostIdx)
 	}
 
-	m, _ = m.handlePostsKey(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.handlePostsKey(keyCode(tea.KeyDown))
 	if m.Posts.SelectedPostIdx != 1 {
 		t.Errorf("SelectedPostIdx = %d, want 1 on separator line after the current post", m.Posts.SelectedPostIdx)
 	}
 
-	m, _ = m.handlePostsKey(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.handlePostsKey(keyCode(tea.KeyDown))
 	if m.Posts.SelectedPostIdx != 2 {
 		t.Errorf("SelectedPostIdx = %d, want 2 after moving into the next post", m.Posts.SelectedPostIdx)
 	}
 
-	if m.Posts.PostViewport.YOffset == 0 {
+	if m.Posts.PostViewport.YOffset() == 0 {
 		t.Error("viewport should start scrolling before the selected post leaves the visible area")
 	}
 }
@@ -734,7 +734,7 @@ func TestHandlePostsKeyEnterDetail(t *testing.T) {
 	}
 	m.Posts.SelectedPostIdx = 0
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd := m.handlePostsKey(keyCode(tea.KeyEnter))
 	m = result
 
 	if !m.Posts.ShowPostDetail {
@@ -754,7 +754,7 @@ func TestHandlePostsKeyEscFromDetail(t *testing.T) {
 	m.Posts.CurrentPost = &models.Post{Pid: 1}
 	m.Posts.CommentList = []models.Comment{{Cid: 1}}
 
-	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyEscape})
+	result, _ := m.handlePostsKey(keyCode(tea.KeyEscape))
 	m = result
 
 	if m.Posts.ShowPostDetail {
@@ -774,7 +774,7 @@ func TestHandlePostsKeyRefresh(t *testing.T) {
 	m.Posts.PostListTotal = 10
 	m.Posts.SearchActive = false
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	result, cmd := m.handlePostsKey(keyPress('r'))
 	m = result
 
 	if !m.Posts.PostListLoading {
@@ -794,7 +794,7 @@ func TestHandlePostsKeyRefreshInDetail(t *testing.T) {
 	m.Posts.CurrentPost = &models.Post{Pid: 1, Text: "Post", Timestamp: 1000}
 	m.Posts.CommentSortAsc = false
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	result, cmd := m.handlePostsKey(keyPress('r'))
 	m = result
 
 	if !m.Posts.CommentListLoading {
@@ -812,7 +812,7 @@ func TestHandlePostsKeyRefreshDisabledDuringSearch(t *testing.T) {
 	m := newTestModel()
 	m.Posts.SearchActive = true
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	result, cmd := m.handlePostsKey(keyPress('r'))
 	m = result
 
 	if m.Posts.PostListLoading {
@@ -830,7 +830,7 @@ func TestHandlePostsKeyEscClearsTagFilter(t *testing.T) {
 	m.Posts.PostList = []models.Post{{Pid: 1}}
 	m.Posts.PostsMode = PostsModeList
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyEscape})
+	result, cmd := m.handlePostsKey(keyCode(tea.KeyEscape))
 	m = result
 
 	if m.Posts.ActiveTagID != 0 {
@@ -858,7 +858,7 @@ func TestHandlePostsKeyEscClearsSearchAndTagFilters(t *testing.T) {
 	m.Posts.ActiveTag = "课程学业"
 	m.Posts.PostsMode = PostsModeSearchResults
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyEscape})
+	result, cmd := m.handlePostsKey(keyCode(tea.KeyEscape))
 	m = result
 
 	if m.Posts.SearchActive {
@@ -898,7 +898,7 @@ func TestHandlePostsKeyPrefetchMoreBeforeLastLine(t *testing.T) {
 	m.Posts.CursorLine = m.Posts.totalPostLines() - 8
 	m.Posts.SelectedPostIdx = m.Posts.postIndexAtLine(m.Posts.CursorLine)
 
-	result, cmd := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyDown})
+	result, cmd := m.handlePostsKey(keyCode(tea.KeyDown))
 	m = result
 
 	if !m.Posts.PostListLoading {
@@ -915,11 +915,11 @@ func TestHandleToolsConfigInsertAndSave(t *testing.T) {
 	m.ToolsDialog.Switch(ToolsSectionConfig)
 	m.ToolsDialog.Config.lines = strings.Split(`{"username":"a","database":{},"cors":{}}`, "\n")
 
-	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	m, _ = m.handleToolsDialogKey(keyPress('i'))
 	if m.ToolsDialog.Config.Mode() != ConfigEditorInsert {
 		t.Fatal("i should enter insert mode")
 	}
-	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyCtrlS})
+	m, _ = m.handleToolsDialogKey(keyCtrl('s'))
 	if !m.ToolsDialog.Config.saving {
 		t.Fatal("Ctrl+S should start saving valid JSON")
 	}
@@ -932,22 +932,22 @@ func TestHandleLogsKeyNavigation(t *testing.T) {
 	m.ToolsDialog.Logs.SetLines([]string{"line1", "line2", "line3", "line4", "line5"})
 	m.ToolsDialog.Logs.offset = 2
 
-	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyDown})
+	m, _ = m.handleToolsDialogKey(keyCode(tea.KeyDown))
 	if m.ToolsDialog.Logs.Offset() != 3 {
 		t.Errorf("offset = %d, want 3", m.ToolsDialog.Logs.Offset())
 	}
 
-	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyUp})
+	m, _ = m.handleToolsDialogKey(keyCode(tea.KeyUp))
 	if m.ToolsDialog.Logs.Offset() != 2 {
 		t.Errorf("offset = %d, want 2", m.ToolsDialog.Logs.Offset())
 	}
 
-	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyPgDown})
+	m, _ = m.handleToolsDialogKey(keyCode(tea.KeyPgDown))
 	if m.ToolsDialog.Logs.Offset() != 4 {
 		t.Errorf("offset = %d, want 4", m.ToolsDialog.Logs.Offset())
 	}
 
-	m, _ = m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyPgUp})
+	m, _ = m.handleToolsDialogKey(keyCode(tea.KeyPgUp))
 	if m.ToolsDialog.Logs.Offset() != 0 {
 		t.Errorf("offset = %d, want 0", m.ToolsDialog.Logs.Offset())
 	}
@@ -958,7 +958,7 @@ func TestHandleLogsKeyRefresh(t *testing.T) {
 	m.Dialog = DialogTools
 	m.ToolsDialog.Switch(ToolsSectionLogs)
 
-	result, cmd := m.handleToolsDialogKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	result, cmd := m.handleToolsDialogKey(keyPress('r'))
 	m = result
 
 	if !m.ToolsDialog.Logs.Loading() {
@@ -978,7 +978,7 @@ func TestHandlePostsKeyOpenImagePanelFromList(t *testing.T) {
 		{Pid: 101, Text: "带图帖子", MediaIds: mediaID},
 	}
 
-	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	result, _ := m.handlePostsKey(keyPress('o'))
 
 	if result.Dialog != DialogImage {
 		t.Fatalf("dialog = %v, want image dialog", result.Dialog)
@@ -1001,7 +1001,7 @@ func TestHandlePostsKeyOpenImagePanelFromImageTypePostWithoutMediaIDs(t *testing
 		{Pid: 8319759, Type: "image", Text: "走 pid 的图片帖"},
 	}
 
-	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	result, _ := m.handlePostsKey(keyPress('o'))
 
 	if result.Dialog != DialogImage {
 		t.Fatalf("dialog = %v, want image dialog", result.Dialog)
@@ -1025,7 +1025,7 @@ func TestHandleImageDialogKeyCyclesImages(t *testing.T) {
 		{Cid: 1, Text: "带图评论", MediaIds: firstID + "," + secondID},
 	}
 
-	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	result, _ := m.handlePostsKey(keyPress('o'))
 	if result.Dialog != DialogImage {
 		t.Fatalf("dialog = %v, want image dialog", result.Dialog)
 	}
@@ -1033,12 +1033,12 @@ func TestHandleImageDialogKeyCyclesImages(t *testing.T) {
 		t.Fatalf("initial image = %#v, want first image", got)
 	}
 
-	result, _ = result.handleImageDialogKey(tea.KeyMsg{Type: tea.KeyRight})
+	result, _ = result.handleImageDialogKey(keyCode(tea.KeyRight))
 	if got := result.ImageDialog.Current(); got == nil || got.id != secondID {
 		t.Fatalf("after right image = %#v, want second image", got)
 	}
 
-	result, _ = result.handleImageDialogKey(tea.KeyMsg{Type: tea.KeyLeft})
+	result, _ = result.handleImageDialogKey(keyCode(tea.KeyLeft))
 	if got := result.ImageDialog.Current(); got == nil || got.id != firstID {
 		t.Fatalf("after left image = %#v, want first image", got)
 	}
@@ -1055,7 +1055,7 @@ func TestHandlePostsKeyOpenImagePanelFallsBackToPostWhenCommentImagesUnresolved(
 		{Cid: 1, Pid: 8319760, Text: "评论里也写了图", MediaIds: "missing-comment-image"},
 	}
 
-	result, _ := m.handlePostsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	result, _ := m.handlePostsKey(keyPress('o'))
 	if result.Dialog != DialogImage {
 		t.Fatalf("dialog = %v, want image dialog", result.Dialog)
 	}
@@ -1081,7 +1081,7 @@ func TestHandleDialogEscClose(t *testing.T) {
 	m := newTestModel()
 	m.Dialog = DialogTools
 
-	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+	result, _ := m.handleKey(keyCode(tea.KeyEscape))
 	m = result
 
 	if m.Dialog != DialogNone {
@@ -1140,7 +1140,7 @@ func TestViewHomeContainsExpectedText(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	expectedStrings := []string{
 		"TreeHole TUI",
@@ -1168,7 +1168,7 @@ func TestViewHomeCrawlerRunning(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "运行中") {
 		t.Error("View() should show '运行中' when crawler is running")
@@ -1183,7 +1183,7 @@ func TestViewHomeCrawlerError(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "错误") {
 		t.Error("View() should show '错误' when crawler has error")
@@ -1201,7 +1201,7 @@ func TestViewHomeMonitorMode(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "监控模式") {
 		t.Error("View() should show '监控模式' in monitor mode")
@@ -1218,7 +1218,7 @@ func TestViewPostsEmpty(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "帖子列表") {
 		t.Error("View() should show '帖子列表' header")
@@ -1238,7 +1238,7 @@ func TestViewPostsContainsPostText(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "Hello World") {
 		t.Error("View() should contain post text 'Hello World'")
@@ -1267,7 +1267,7 @@ func TestViewPostsSeparatesPraiseAndFollowCounts(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "♡ 0") {
 		t.Fatalf("View() should keep praise count separate from follow count, got %q", output)
@@ -1287,7 +1287,7 @@ func TestViewPostsShowsPraiseAndFollowStates(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "♥ 10") {
 		t.Fatalf("View() should show liked state, got %q", output)
@@ -1307,7 +1307,7 @@ func TestViewPostsNonAnonymous(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "实名") {
 		t.Error("View() should show '实名' for non-anonymous post")
@@ -1322,7 +1322,7 @@ func TestViewPostsSearchActive(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "搜索结果") {
 		t.Error("View() should show '搜索结果' when search is active")
@@ -1340,7 +1340,7 @@ func TestViewPostsSearching(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "hello") {
 		t.Error("View() should show search input when searching")
@@ -1363,7 +1363,7 @@ func TestViewPostDetail(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "#42") {
 		t.Error("View() should show post pid")
@@ -1397,7 +1397,7 @@ func TestViewPostDetailEmptyComments(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "暂无评论") {
 		t.Error("View() should show '暂无评论'")
@@ -1416,7 +1416,7 @@ func TestViewConfigDialog(t *testing.T) {
 	m.Width = 80
 	m.Height = 40
 
-	output := m.View()
+	output := viewString(m)
 	plain := stripANSI(output)
 
 	if strings.Contains(plain, "工具") || !strings.Contains(plain, "配置") {
@@ -1438,7 +1438,7 @@ func TestViewConfigDialogShowsEditableJSONPassword(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if !containsStr(output, "mypassword") {
 		t.Error("JSON editor should show the editable config value")
@@ -1451,7 +1451,7 @@ func TestViewHelpDialog(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	expectedStrings := []string{
 		"快捷键",
@@ -1478,7 +1478,7 @@ func TestViewLogsDialog(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 
 	if containsStr(output, "运行日志") {
 		t.Error("logs page should not repeat its flattened title")
@@ -1496,7 +1496,7 @@ func TestViewLogsDialogEmpty(t *testing.T) {
 	m.Width = 80
 	m.Height = 24
 
-	output := m.View()
+	output := viewString(m)
 	plain := stripANSI(output)
 
 	if !strings.Contains(plain, "暂无日志") {
@@ -1509,7 +1509,7 @@ func TestViewDefaultDimensions(t *testing.T) {
 	m.Width = 0
 	m.Height = 0
 
-	output := m.View()
+	output := viewString(m)
 
 	// Should not panic and should produce output
 	if output == "" {
@@ -1614,7 +1614,7 @@ func TestHandleSessionDialogOpenConfig(t *testing.T) {
 	}
 	m.SessionDialog = NewSessionPromptDialog(m.Session)
 
-	result, cmd := m.handleSessionDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd := m.handleSessionDialogKey(keyCode(tea.KeyEnter))
 	if result.Dialog != DialogTools || result.ToolsDialog.Section() != ToolsSectionConfig {
 		t.Fatalf("dialog/section = %v/%v, want tools/config", result.Dialog, result.ToolsDialog.Section())
 	}
@@ -1693,7 +1693,7 @@ func TestHandleAuthChallengeEscFallsBackOffline(t *testing.T) {
 	}
 	m.AuthDialog = NewAuthChallengeDialog(m.Session)
 
-	result, _ := m.handleAuthChallengeKey(tea.KeyMsg{Type: tea.KeyEscape})
+	result, _ := m.handleAuthChallengeKey(keyCode(tea.KeyEscape))
 
 	if result.Dialog != DialogNone {
 		t.Fatalf("dialog = %v, want none", result.Dialog)
@@ -1716,7 +1716,7 @@ func TestHandleAuthChallengePasswordRequiresNonEmptyValue(t *testing.T) {
 	}
 	m.AuthDialog = NewAuthChallengeDialog(m.Session)
 
-	result, cmd := m.handleAuthChallengeKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd := m.handleAuthChallengeKey(keyCode(tea.KeyEnter))
 
 	if cmd != nil {
 		t.Fatal("expected no command when password is empty")
@@ -1736,7 +1736,7 @@ func TestHandleAuthChallengeUsernameRequiresNonEmptyValue(t *testing.T) {
 	}
 	m.AuthDialog = NewAuthChallengeDialog(m.Session)
 
-	result, cmd := m.handleAuthChallengeKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, cmd := m.handleAuthChallengeKey(keyCode(tea.KeyEnter))
 
 	if cmd != nil {
 		t.Fatal("expected no command when username is empty")
@@ -1782,7 +1782,7 @@ func TestHandleAuthChallengeEnterOnSMSButtonSendsCode(t *testing.T) {
 	m.Session = SessionState{Challenge: AuthChallengeTypeSMS}
 	m.AuthDialog = NewAuthChallengeDialog(m.Session)
 
-	_, cmd := m.handleAuthChallengeKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.handleAuthChallengeKey(keyCode(tea.KeyEnter))
 	if cmd == nil {
 		t.Fatal("expected send-sms command when pressing enter on send button")
 	}
@@ -1810,7 +1810,7 @@ func TestTagSelectionClearsSearchState(t *testing.T) {
 	m.Posts.Searching = true
 	m.Posts.SearchInput = "keyword"
 	m.TagsDialog.SetTags([]models.Tag{{ID: 1, Label: "课程心得"}})
-	result, _ := m.handleTagsDialogKey(tea.KeyMsg{Type: tea.KeyEnter})
+	result, _ := m.handleTagsDialogKey(keyCode(tea.KeyEnter))
 	if result.Posts.SearchActive {
 		t.Fatal("tag selection should clear SearchActive")
 	}

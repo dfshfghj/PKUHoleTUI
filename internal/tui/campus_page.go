@@ -6,7 +6,7 @@ import (
 
 	"treehole/internal/models"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 type CourseSchedulePageModel struct {

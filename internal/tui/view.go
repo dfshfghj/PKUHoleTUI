@@ -2,12 +2,12 @@ package tui
 
 import (
 	"fmt"
-	"strconv"
+	"image/color"
 	"strings"
 	"time"
 
-	lipgloss2 "charm.land/lipgloss/v2"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var shanghaiLocation = func() *time.Location {
@@ -18,7 +18,7 @@ var shanghaiLocation = func() *time.Location {
 	return loc
 }()
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	m.ensureDialogModels()
 
 	w := m.Width
@@ -41,7 +41,9 @@ func (m Model) View() string {
 		m.Capture.RecordFrame(rendered)
 	}
 
-	return rendered
+	view := tea.NewView(rendered)
+	view.AltScreen = true
+	return view
 }
 
 func trimTerminalWrapRiskPadding(frame string) string {
@@ -207,7 +209,7 @@ func (m Model) renderHelpScreen(width, height int) (string, []imagePlacement) {
 	statusLineHeight := lipgloss.Height(m.renderStatusLine(width))
 	availableHeight := height - statusLineHeight
 
-	baseLayer := lipgloss2.NewLayer(main)
+	baseLayer := lipgloss.NewLayer(main)
 	panelX := width - panelWidth
 	if panelX < 0 {
 		panelX = 0
@@ -216,8 +218,8 @@ func (m Model) renderHelpScreen(width, height int) (string, []imagePlacement) {
 	if panelY < 0 {
 		panelY = 0
 	}
-	panelLayer := lipgloss2.NewLayer(panel).X(panelX).Y(panelY).Z(1)
-	body := lipgloss2.NewCompositor(baseLayer, panelLayer).Render()
+	panelLayer := lipgloss.NewLayer(panel).X(panelX).Y(panelY).Z(1)
+	body := lipgloss.NewCompositor(baseLayer, panelLayer).Render()
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
 }
 
@@ -252,20 +254,13 @@ func (m Model) renderPanelScreenWithStyle(width, height int, renderContent func(
 	if fillPanel {
 		panelStyle = panelStyle.
 			Padding(1, 3).
-			Height(maxInt(1, panelH-2)).
-			ColorWhitespace(true)
+			Height(maxInt(1, panelH-2))
 	}
 	panel := panelStyle.Render(renderContent(panelW, panelH))
-	if fillPanel {
-		// The v2 compositor treats ordinary spaces as transparent cells. Use an
-		// NBSP with an explicit background sequence so the cell is retained and
-		// physically painted, while text captures still show an empty cell.
-		panel = renderOpaquePanelBlanks(panel)
-	}
 
-	baseLayer := lipgloss2.NewLayer(main)
-	panelLayer := lipgloss2.NewLayer(panel).X(panelX).Y(panelY).Z(1)
-	body := lipgloss2.NewCompositor(baseLayer, panelLayer).Render()
+	baseLayer := lipgloss.NewLayer(main)
+	panelLayer := lipgloss.NewLayer(panel).X(panelX).Y(panelY).Z(1)
+	body := lipgloss.NewCompositor(baseLayer, panelLayer).Render()
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
 }
 
@@ -274,28 +269,6 @@ func (m Model) renderToolsPanelContent(panelW, panelH int) string {
 		maxInt(20, panelW-panelContentStyle.GetHorizontalFrameSize()),
 		maxInt(8, panelH-panelContentStyle.GetVerticalFrameSize()),
 	)
-}
-
-func renderOpaquePanelBlanks(panel string) string {
-	color, ok := colorBg.(lipgloss.Color)
-	if !ok {
-		return strings.ReplaceAll(panel, " ", "\u00a0")
-	}
-	hex := strings.TrimPrefix(string(color), "#")
-	if len(hex) != 6 {
-		return strings.ReplaceAll(panel, " ", "\u00a0")
-	}
-	value, err := strconv.ParseUint(hex, 16, 32)
-	if err != nil {
-		return strings.ReplaceAll(panel, " ", "\u00a0")
-	}
-	blank := fmt.Sprintf(
-		"\x1b[48;2;%d;%d;%dm\u00a0",
-		(value>>16)&0xff,
-		(value>>8)&0xff,
-		value&0xff,
-	)
-	return strings.ReplaceAll(panel, " ", blank) + "\x1b[49m"
 }
 
 func (m Model) renderComposerPanelContent(panelW, panelH int) string {
@@ -334,9 +307,9 @@ func (m Model) renderImagePanelScreen(width, height int) (string, []imagePlaceme
 	}
 	panel := panelContentStyle.Width(panelW).MaxHeight(panelH).Render(content)
 
-	baseLayer := lipgloss2.NewLayer(main)
-	panelLayer := lipgloss2.NewLayer(panel).X(panelX).Y(panelY).Z(1)
-	body := lipgloss2.NewCompositor(baseLayer, panelLayer).Render()
+	baseLayer := lipgloss.NewLayer(main)
+	panelLayer := lipgloss.NewLayer(panel).X(panelX).Y(panelY).Z(1)
+	body := lipgloss.NewCompositor(baseLayer, panelLayer).Render()
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, body), placements
 }
 
@@ -344,9 +317,9 @@ func (m Model) overlayToast(screenWidth int, body string) string {
 	toastW := max(screenWidth/4, 20)
 	toast := toastStyle.Width(toastW).Render(m.ToastMsg)
 
-	baseLayer := lipgloss2.NewLayer(body)
-	toastLayer := lipgloss2.NewLayer(toast).X(screenWidth - toastW - 2).Y(1).Z(2)
-	return lipgloss2.NewCompositor(baseLayer, toastLayer).Render()
+	baseLayer := lipgloss.NewLayer(body)
+	toastLayer := lipgloss.NewLayer(toast).X(screenWidth - toastW - 2).Y(1).Z(2)
+	return lipgloss.NewCompositor(baseLayer, toastLayer).Render()
 }
 
 func (m Model) contentAreaHeightForSize(width, height int) int {
@@ -439,14 +412,14 @@ func (m Model) renderPowerlineGroup(segments []powerlineSegment, direction power
 	return b.String()
 }
 
-func powerlineSeparatorRight(left, right lipgloss.TerminalColor) string {
+func powerlineSeparatorRight(left, right color.Color) string {
 	return lipgloss.NewStyle().
 		Foreground(left).
 		Background(right).
 		Render("")
 }
 
-func powerlineSeparatorLeft(left, right lipgloss.TerminalColor) string {
+func powerlineSeparatorLeft(left, right color.Color) string {
 	return lipgloss.NewStyle().
 		Foreground(right).
 		Background(left).

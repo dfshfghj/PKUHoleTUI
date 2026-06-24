@@ -6,8 +6,8 @@ import (
 
 	"treehole/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestComposerDialogViewUsesPanelSpaceAndShowsQuotePreview(t *testing.T) {
@@ -49,13 +49,13 @@ func TestComposerDialogHighlightsFocusedInput(t *testing.T) {
 	dialog.Configure(ComposerModePost)
 
 	bodyFocused := dialog.renderInputBlock(dialog.input, 32, 2, dialog.composerInputFocused(false))
-	if got := lipgloss.NewStyle().Background(colorAccentSoft).Render(""); !strings.Contains(bodyFocused, got) {
+	if got := lipgloss.NewStyle().Background(colorSurface).Foreground(colorMuted).Render(composerPlaceholder); !strings.Contains(bodyFocused, got) {
 		t.Fatalf("body input should include focused background escape")
 	}
 
-	_ = dialog.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_ = dialog.Update(keyCode(tea.KeyTab))
 	imageFocused := dialog.renderInputBlock(dialog.imageInput, 32, 2, dialog.composerInputFocused(true), composerImagePlaceholder)
-	if got := lipgloss.NewStyle().Background(colorAccentSoft).Render(""); !strings.Contains(imageFocused, got) {
+	if got := lipgloss.NewStyle().Background(colorSurface).Foreground(colorMuted).Render(composerImagePlaceholder); !strings.Contains(imageFocused, got) {
 		t.Fatalf("image input should include focused background escape")
 	}
 }

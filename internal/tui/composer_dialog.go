@@ -6,9 +6,9 @@ import (
 
 	"treehole/internal/models"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type ComposerMode int
@@ -97,7 +97,7 @@ func (m *ComposerDialogModel) SetError(err error) {
 	m.errorText = err.Error()
 }
 
-func (m *ComposerDialogModel) Update(msg tea.KeyMsg) tea.Cmd {
+func (m *ComposerDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
 	if msg.String() == "tab" {
 		m.focusImages = !m.focusImages
 		if m.focusImages {

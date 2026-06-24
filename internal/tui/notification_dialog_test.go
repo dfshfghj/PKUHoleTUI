@@ -7,7 +7,8 @@ import (
 
 	"treehole/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestNotificationDialogSelectsMessagesAndAcceptsFlattenedType(t *testing.T) {
@@ -17,7 +18,7 @@ func TestNotificationDialogSelectsMessagesAndAcceptsFlattenedType(t *testing.T) 
 		{ID: 2, Content: "second"},
 	}, 2)
 
-	dialog.Update(tea.KeyMsg{Type: tea.KeyDown})
+	dialog.Update(keyCode(tea.KeyDown))
 	if got := dialog.Selected(); got == nil || got.ID != 2 {
 		t.Fatalf("selected = %+v, want id 2", got)
 	}
@@ -69,6 +70,36 @@ func TestNotificationDialogFillsAvailableListHeight(t *testing.T) {
 	output := stripANSI(dialog.View(180, 35))
 	if !strings.Contains(output, "notification 12") {
 		t.Fatalf("dialog should use available height for more notifications:\n%s", output)
+	}
+}
+
+func TestNotificationDialogPaintsItemRightPadding(t *testing.T) {
+	dialog := NewNotificationDialog()
+	item := models.Notification{
+		ID:        1,
+		PID:       42,
+		Content:   "short",
+		CreatedAt: "2026-04-08 15:27:19",
+	}
+
+	output := dialog.renderItem(item, true, 44)
+	lines := strings.Split(output, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("rendered item line count = %d, want 2:\n%q", len(lines), output)
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got != 44 {
+			t.Fatalf("notification item line %d width = %d, want 44:\n%q", i, got, line)
+		}
+		if strings.Contains(line, "\x1b[m    ") {
+			t.Fatalf("notification item line %d has plain padding after reset:\n%q", i, line)
+		}
+	}
+	if !strings.Contains(output, paintedDialogSpaces(4)) {
+		t.Fatalf("notification item right padding should carry dialog background:\n%q", output)
+	}
+	if strings.Contains(output, "●\x1b[m  #") {
+		t.Fatalf("notification marker reset should not leave metadata without dialog background:\n%q", output)
 	}
 }
 

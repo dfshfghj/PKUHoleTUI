@@ -8,7 +8,7 @@ import (
 	"treehole/internal/db"
 	"treehole/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type Page int

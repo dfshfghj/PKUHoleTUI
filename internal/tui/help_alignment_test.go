@@ -6,7 +6,7 @@ import (
 	"testing"
 	"treehole/internal/models"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 func TestHelpPanelAlignmentAcrossWidths(t *testing.T) {

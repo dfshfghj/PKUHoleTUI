@@ -7,8 +7,8 @@ import (
 
 	"treehole/internal/config"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type ConfigEditorMode int
@@ -92,7 +92,7 @@ func (m *ConfigDialogModel) ToConfig() (*config.Config, error) {
 	return &result, nil
 }
 
-func (m *ConfigDialogModel) Update(msg tea.KeyMsg) {
+func (m *ConfigDialogModel) Update(msg tea.KeyPressMsg) {
 	if m.mode == ConfigEditorInsert {
 		m.updateInsert(msg)
 	} else {
@@ -102,8 +102,8 @@ func (m *ConfigDialogModel) Update(msg tea.KeyMsg) {
 	m.ensureCursorVisible()
 }
 
-func (m *ConfigDialogModel) updateInsert(msg tea.KeyMsg) {
-	switch msg.Type {
+func (m *ConfigDialogModel) updateInsert(msg tea.KeyPressMsg) {
+	switch msg.Code {
 	case tea.KeyEscape:
 		m.mode = ConfigEditorNormal
 		if m.cursorCol > 0 {
@@ -129,16 +129,18 @@ func (m *ConfigDialogModel) updateInsert(msg tea.KeyMsg) {
 		m.cursorCol = 0
 	case tea.KeyBackspace:
 		m.backspace()
-	case tea.KeyRunes:
-		m.insertRunes(msg.Runes)
+	default:
+		if msg.Text != "" {
+			m.insertRunes([]rune(msg.Text))
+		}
 	}
 }
 
-func (m *ConfigDialogModel) updateNormal(msg tea.KeyMsg) {
+func (m *ConfigDialogModel) updateNormal(msg tea.KeyPressMsg) {
 	if msg.String() != "g" {
 		m.pendingG = false
 	}
-	switch msg.Type {
+	switch msg.Code {
 	case tea.KeyLeft:
 		m.moveHorizontal(-1)
 	case tea.KeyRight:
@@ -147,7 +149,7 @@ func (m *ConfigDialogModel) updateNormal(msg tea.KeyMsg) {
 		m.moveVertical(-1)
 	case tea.KeyDown:
 		m.moveVertical(1)
-	case tea.KeyRunes:
+	default:
 		switch msg.String() {
 		case "h":
 			m.moveHorizontal(-1)
@@ -291,9 +293,11 @@ func (m *ConfigDialogModel) View(width, height int) string {
 
 	end := minInt(len(m.lines), m.offset+editorHeight)
 	lineNumberWidth := len(fmt.Sprintf("%d", len(m.lines)))
-	contentWidth := maxInt(8, width-lineNumberWidth-5)
+	separatorWidth := lipgloss.Width(" │ ")
+	contentWidth := maxInt(1, width-lineNumberWidth-separatorWidth)
 	m.viewWidth = contentWidth
 	m.ensureCursorVisible()
+	fill := dialogBackgroundFillStyle()
 	for i := m.offset; i < end; i++ {
 		number := vStatLabelStyle.
 			Background(colorBg).
@@ -302,9 +306,12 @@ func (m *ConfigDialogModel) View(width, height int) string {
 		line := lipgloss.NewStyle().
 			Background(colorBg).
 			Render(m.renderLine(i, contentWidth))
-		b.WriteString(number)
-		b.WriteString(" │ ")
-		b.WriteString(line)
+		line = fillRenderedBackground(line, contentWidth, fill)
+		row := number +
+			fill.Render(" │ ") +
+			line
+		row = fillRenderedBackground(row, width, fill)
+		b.WriteString(row)
 		if i != end-1 {
 			b.WriteString("\n")
 		}
@@ -343,7 +350,7 @@ func (m ConfigDialogModel) renderLine(row, width int) string {
 		col = end
 	}
 	before := string(line[start:col])
-	cursor := "█"
+	cursor := " "
 	after := ""
 	if col < end {
 		if line[col] != ' ' && line[col] != '\t' {

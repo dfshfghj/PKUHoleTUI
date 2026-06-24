@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 )
 
 type AuthChallengeDialogModel struct {
@@ -22,14 +22,14 @@ type AuthChallengeDialogModel struct {
 func NewAuthChallengeDialog(state SessionState) AuthChallengeDialogModel {
 	input := textinput.New()
 	input.Prompt = ""
-	input.Width = 24
+	input.SetWidth(24)
 	m := AuthChallengeDialogModel{input: input}
 	m.ApplyState(state)
 	return m
 }
 
 func (m AuthChallengeDialogModel) initialized() bool {
-	return m.input.Width > 0
+	return m.input.Width() > 0
 }
 
 func (m *AuthChallengeDialogModel) ApplyState(state SessionState) {
@@ -77,10 +77,18 @@ func (m *AuthChallengeDialogModel) ApplyState(state SessionState) {
 	_ = m.input.Focus()
 }
 
-func (m *AuthChallengeDialogModel) Update(msg tea.KeyMsg) tea.Cmd {
+func (m *AuthChallengeDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
 	if m.kind == AuthChallengeTypeSMS {
-		switch msg.Type {
-		case tea.KeyTab, tea.KeyShiftTab, tea.KeyUp, tea.KeyDown:
+		switch msg.Code {
+		case tea.KeyTab, tea.KeyUp, tea.KeyDown:
+			m.focusSend = !m.focusSend
+			if m.focusSend {
+				m.input.Blur()
+				return nil
+			}
+			return m.input.Focus()
+		}
+		if msg.String() == "shift+tab" {
 			m.focusSend = !m.focusSend
 			if m.focusSend {
 				m.input.Blur()
@@ -136,7 +144,7 @@ func (m AuthChallengeDialogModel) IsSendFocused() bool {
 func (m AuthChallengeDialogModel) View(width int) string {
 	var b strings.Builder
 	input := m.input
-	input.Width = maxInt(20, width-18)
+	input.SetWidth(maxInt(20, width-18))
 
 	b.WriteString(vDialogTitleStyle.Render(m.title))
 	b.WriteString("\n\n")

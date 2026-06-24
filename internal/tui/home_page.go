@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type HomePageModel struct {
@@ -218,7 +218,7 @@ func compactCardStyle(width int) lipgloss.Style {
 		Width(contentWidth)
 }
 
-func (h *HomePageModel) Update(msg tea.KeyMsg) HomeAction {
+func (h *HomePageModel) Update(msg tea.KeyPressMsg) HomeAction {
 	switch msg.String() {
 	case "m":
 		if h.CrawlerState == CrawlerStopped {

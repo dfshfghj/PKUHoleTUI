@@ -7,8 +7,8 @@ import (
 
 	"treehole/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type NotificationDialogModel struct {
@@ -113,7 +113,7 @@ func (m *NotificationDialogModel) MarkAllRead() {
 }
 
 // Update returns true when the active message type changed and must be reloaded.
-func (m *NotificationDialogModel) Update(msg tea.KeyMsg) bool {
+func (m *NotificationDialogModel) Update(msg tea.KeyPressMsg) bool {
 	switch msg.String() {
 	case "up":
 		if m.selected > 0 {
@@ -134,12 +134,13 @@ func (m *NotificationDialogModel) Update(msg tea.KeyMsg) bool {
 func (m NotificationDialogModel) View(width, height int) string {
 	var b strings.Builder
 	innerWidth := maxInt(24, width-panelContentStyle.GetHorizontalFrameSize())
+	fill := dialogBackgroundFillStyle()
 
 	switch {
 	case m.loading:
-		b.WriteString(vLoadingStyle.Render("加载通知中..."))
+		b.WriteString(fillRenderedBackground(vLoadingStyle.Render("加载通知中..."), innerWidth, fill))
 	case len(m.items) == 0:
-		b.WriteString(vEmptyStyle.Render("暂无通知"))
+		b.WriteString(fillRenderedBackground(vEmptyStyle.Render("暂无通知"), innerWidth, fill))
 	default:
 		renderedItems := make([]string, len(m.items))
 		for i := range m.items {
@@ -154,16 +155,17 @@ func (m NotificationDialogModel) View(width, height int) string {
 			}
 		}
 		b.WriteString("\n")
-		b.WriteString(vPaginationStyle.Render(fmt.Sprintf("共 %d 条 | 当前 %d/%d", m.total, m.selected+1, len(m.items))))
+		pagination := vPaginationStyle.Render(fmt.Sprintf("共 %d 条 | 当前 %d/%d", m.total, m.selected+1, len(m.items)))
+		b.WriteString(fillRenderedBackground(pagination, innerWidth, fill))
 	}
 
 	if m.action {
 		b.WriteString("\n")
-		b.WriteString(vLoadingStyle.Render("更新已读状态中..."))
+		b.WriteString(fillRenderedBackground(vLoadingStyle.Render("更新已读状态中..."), innerWidth, fill))
 	}
 	if m.lastErr != "" {
 		b.WriteString("\n")
-		b.WriteString(vErrorStyle.Render("错误: " + m.lastErr))
+		b.WriteString(fillRenderedBackground(vErrorStyle.Render("错误: "+m.lastErr), innerWidth, fill))
 	}
 
 	help := "↑↓/PgUp/PgDn: 选择 | a: 全部已读 | r: 刷新 | Esc: 关闭"
@@ -174,40 +176,84 @@ func (m NotificationDialogModel) View(width, height int) string {
 }
 
 func (m NotificationDialogModel) renderItem(item models.Notification, selected bool, width int) string {
-	unreadMarker := " "
-	if !item.Read {
-		unreadMarker = vStatValueStyle.Render("●")
-	}
-	meta := unreadMarker
+	fill := dialogBackgroundFillStyle()
+	marker := " "
 	if item.PID > 0 {
-		meta += fmt.Sprintf("  #%d", item.PID)
+		marker += fmt.Sprintf("  #%d", item.PID)
 	}
 	if item.CreatedAt != "" {
-		meta += "  " + item.CreatedAt
+		marker += "  " + item.CreatedAt
 	} else if item.Timestamp > 0 {
-		meta += "  " + time.Unix(item.Timestamp, 0).In(shanghaiLocation).Format("2006-01-02 15:04")
+		marker += "  " + time.Unix(item.Timestamp, 0).In(shanghaiLocation).Format("2006-01-02 15:04")
 	}
 	title := strings.TrimSpace(item.Title)
-	if title == "" {
-		title = meta
-	} else {
-		title += "  " + meta
-	}
-	contentWidth := maxInt(12, width-4)
-	content := strings.Join(wrapVisibleLine(strings.TrimSpace(item.Content), contentWidth), "\n")
-	body := title + "\n" + content
-	style := lipgloss.NewStyle().
-		Width(maxInt(12, width-2)).
-		Padding(0, 1).
-		Background(colorBg).
-		ColorWhitespace(true).
-		BorderLeft(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(colorBorder)
+	contentWidth := maxInt(12, width-3)
+	borderColor := colorBorder
 	if selected {
-		style = style.BorderForeground(colorAccent)
+		borderColor = colorAccent
 	}
-	return style.Render(body)
+	border := lipgloss.NewStyle().
+		Foreground(borderColor).
+		Background(colorBg).
+		Render(lipgloss.NormalBorder().Left)
+	pad := fill.Render(" ")
+	bodyStyle := lipgloss.NewStyle().Background(colorBg)
+	textStyle := bodyStyle.Foreground(colorText)
+	mutedStyle := bodyStyle.Foreground(colorMuted)
+	markerStyle := vStatValueStyle.Background(colorBg)
+
+	titleLine := renderNotificationTitleLine(title, marker, item.Read, contentWidth, textStyle, mutedStyle, markerStyle, fill)
+	contentLines := wrapVisibleLine(strings.TrimSpace(item.Content), contentWidth)
+	if len(contentLines) == 0 {
+		contentLines = []string{""}
+	}
+
+	lines := make([]string, 0, 1+len(contentLines))
+	lines = append(lines, border+pad+titleLine+pad)
+	for _, contentLine := range contentLines {
+		rendered := fillRenderedBackground(textStyle.Render(contentLine), contentWidth, fill)
+		lines = append(lines, border+pad+rendered+pad)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderNotificationTitleLine(title, meta string, read bool, width int, textStyle, mutedStyle, markerStyle, fill lipgloss.Style) string {
+	var rendered strings.Builder
+	if title != "" {
+		title = clipToVisibleWidth(title, width)
+		rendered.WriteString(textStyle.Render(title))
+		remaining := width - lipgloss.Width(title)
+		if remaining > 0 {
+			separator := "  "
+			if remaining < lipgloss.Width(separator) {
+				separator = strings.Repeat(" ", remaining)
+			}
+			rendered.WriteString(fill.Render(separator))
+			remaining -= lipgloss.Width(separator)
+			meta = clipToVisibleWidth(meta, remaining)
+			rendered.WriteString(renderNotificationMeta(meta, read, mutedStyle, markerStyle, fill))
+		}
+		return fillRenderedBackground(rendered.String(), width, fill)
+	}
+	meta = clipToVisibleWidth(meta, width)
+	rendered.WriteString(renderNotificationMeta(meta, read, mutedStyle, markerStyle, fill))
+	return fillRenderedBackground(rendered.String(), width, fill)
+}
+
+func renderNotificationMeta(meta string, read bool, mutedStyle, markerStyle, fill lipgloss.Style) string {
+	if meta == "" {
+		return ""
+	}
+	var rendered strings.Builder
+	marker := " "
+	if !read {
+		marker = "●"
+	}
+	rendered.WriteString(markerStyle.Render(marker))
+	if lipgloss.Width(meta) > 1 {
+		rendered.WriteString(mutedStyle.Render(meta[1:]))
+	}
+	return rendered.String()
 }
 
 func notificationVisibleRange(selected int, items []string, height int) (int, int) {

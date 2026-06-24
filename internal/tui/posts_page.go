@@ -8,9 +8,9 @@ import (
 	"treehole/internal/client"
 	"treehole/internal/models"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	"charm.land/lipgloss/v2"
 )
 
 type PostsPageModel struct {
@@ -56,9 +56,9 @@ type PostsPageModel struct {
 }
 
 func NewPostsPageModel() PostsPageModel {
-	pv := viewport.New(0, 0)
-	bv := viewport.New(0, 0)
-	cv := viewport.New(0, 0)
+	pv := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
+	bv := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
+	cv := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 	search := newSearchInput()
 	return PostsPageModel{
 		PostPerPage:        20,
@@ -78,7 +78,7 @@ func newSearchInput() textinput.Model {
 	input := textinput.New()
 	input.Prompt = ""
 	input.Placeholder = "按 / 搜索 内容 或 #pid 或 :follow"
-	input.Width = 32
+	input.SetWidth(32)
 	styleTextInput(&input, colorSurface, colorText, colorMuted)
 	return input
 }
@@ -87,7 +87,7 @@ func (p *PostsPageModel) ensureInitialized() {
 	if p.PostViewport == nil || p.PostBodyViewport == nil || p.CommentViewport == nil {
 		*p = NewPostsPageModel()
 	}
-	if p.SearchField.Width == 0 {
+	if p.SearchField.Width() == 0 {
 		p.SearchField = newSearchInput()
 		p.SearchField.SetValue(p.SearchInput)
 	}
@@ -111,9 +111,9 @@ func (p *PostsPageModel) syncViewports(width, height int) {
 	if !p.ShowPostDetail && len(p.PostList) > 0 {
 		p.syncCursorToSelection()
 		newContent, _ := p.buildPostListContent(contentWidth)
-		if p.postContent != newContent || p.PostViewport.Width != contentWidth || p.PostViewport.Height != postHeight {
-			p.PostViewport.Width = contentWidth
-			p.PostViewport.Height = postHeight
+		if p.postContent != newContent || p.PostViewport.Width() != contentWidth || p.PostViewport.Height() != postHeight {
+			p.PostViewport.SetWidth(contentWidth)
+			p.PostViewport.SetHeight(postHeight)
 			p.PostViewport.SetContent(newContent)
 			p.postContent = newContent
 		}
@@ -122,17 +122,17 @@ func (p *PostsPageModel) syncViewports(width, height int) {
 	if p.ShowPostDetail && p.CurrentPost != nil {
 		bodyHeight, commentHeight := p.calcDetailViewportHeights(width, height)
 		bodyContent, _ := p.buildDetailBodyContent(contentWidth)
-		if p.postBodyContent != bodyContent || p.PostBodyViewport.Width != contentWidth || p.PostBodyViewport.Height != bodyHeight {
-			p.PostBodyViewport.Width = contentWidth
-			p.PostBodyViewport.Height = bodyHeight
+		if p.postBodyContent != bodyContent || p.PostBodyViewport.Width() != contentWidth || p.PostBodyViewport.Height() != bodyHeight {
+			p.PostBodyViewport.SetWidth(contentWidth)
+			p.PostBodyViewport.SetHeight(bodyHeight)
 			p.PostBodyViewport.SetContent(bodyContent)
 			p.postBodyContent = bodyContent
 		}
 
 		commentContent := p.buildCommentContent(contentWidth)
-		if p.commentContent != commentContent || p.CommentViewport.Width != contentWidth || p.CommentViewport.Height != commentHeight {
-			p.CommentViewport.Width = contentWidth
-			p.CommentViewport.Height = commentHeight
+		if p.commentContent != commentContent || p.CommentViewport.Width() != contentWidth || p.CommentViewport.Height() != commentHeight {
+			p.CommentViewport.SetWidth(contentWidth)
+			p.CommentViewport.SetHeight(commentHeight)
 			p.CommentViewport.SetContent(commentContent)
 			p.commentContent = commentContent
 		}
@@ -166,12 +166,12 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 		if searchInput.Value() != p.SearchInput {
 			searchInput.SetValue(p.SearchInput)
 		}
-		searchInput.Width = maxInt(1, width-searchFocusedStyle.GetHorizontalFrameSize()-1)
+		searchInput.SetWidth(maxInt(1, width-searchFocusedStyle.GetHorizontalFrameSize()-1))
 		inputView := searchInput.View()
 		if searchInput.Value() == "" {
 			inputView = fillRenderedBackground(
 				inputView,
-				searchInput.Width,
+				searchInput.Width(),
 				lipgloss.NewStyle().Background(colorSurface).Foreground(colorText),
 			)
 		}
@@ -198,14 +198,14 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 
 	pageWidth := maxInt(20, width-8)
 	contentWidth := pageWidth
-	vp := viewport.New(contentWidth, p.calcPostViewportHeight(height))
+	vp := viewport.New(viewport.WithWidth(contentWidth), viewport.WithHeight(p.calcPostViewportHeight(height)))
 	content, postPlacements := p.buildPostListContent(contentWidth)
 	vp.SetContent(content)
 	if p.PostViewport != nil {
-		vp.SetYOffset(p.PostViewport.YOffset)
+		vp.SetYOffset(p.PostViewport.YOffset())
 	}
 	prefixHeight := lipgloss.Height(b.String())
-	placements = append(placements, visiblePlacements(postPlacements, vp.YOffset, vp.Height, prefixHeight)...)
+	placements = append(placements, visiblePlacements(postPlacements, vp.YOffset(), vp.Height(), prefixHeight)...)
 	b.WriteString(vp.View())
 	return b.String(), placements
 }
@@ -240,14 +240,14 @@ func (p PostsPageModel) renderPostDetail(width, height int) (string, []imagePlac
 		contentWidth = 20
 	}
 	bodyHeight, commentHeight := p.calcDetailViewportHeights(width, height)
-	bodyViewport := viewport.New(contentWidth, bodyHeight)
+	bodyViewport := viewport.New(viewport.WithWidth(contentWidth), viewport.WithHeight(bodyHeight))
 	bodyContent, bodyPlacements := p.buildDetailBodyContent(contentWidth)
 	bodyViewport.SetContent(bodyContent)
 	if p.PostBodyViewport != nil {
-		bodyViewport.SetYOffset(p.PostBodyViewport.YOffset)
+		bodyViewport.SetYOffset(p.PostBodyViewport.YOffset())
 	}
 	prefixHeight := lipgloss.Height(b.String())
-	placements = append(placements, visiblePlacements(bodyPlacements, bodyViewport.YOffset, bodyViewport.Height, prefixHeight)...)
+	placements = append(placements, visiblePlacements(bodyPlacements, bodyViewport.YOffset(), bodyViewport.Height(), prefixHeight)...)
 	b.WriteString(bodySectionStyle.Render(bodyViewport.View()))
 	b.WriteString("\n")
 
@@ -260,10 +260,10 @@ func (p PostsPageModel) renderPostDetail(width, height int) (string, []imagePlac
 	if len(p.CommentList) == 0 {
 		b.WriteString(commentsSectionStyle.Render(vEmptyStyle.Render("暂无评论")))
 	} else {
-		vp := viewport.New(contentWidth, commentHeight)
+		vp := viewport.New(viewport.WithWidth(contentWidth), viewport.WithHeight(commentHeight))
 		vp.SetContent(p.buildCommentContent(contentWidth))
 		if p.CommentViewport != nil {
-			vp.SetYOffset(p.CommentViewport.YOffset)
+			vp.SetYOffset(p.CommentViewport.YOffset())
 		}
 		b.WriteString(commentsSectionStyle.Render(vp.View()))
 	}
@@ -376,7 +376,7 @@ func (p PostsPageModel) renderCommentHeader(timestamp string) string {
 }
 
 func (p PostsPageModel) renderCommentBodyLine(author, line string) string {
-	prefix := author + ": "
+	prefix := " " + author + ": "
 	if strings.HasPrefix(line, prefix) {
 		return vCommentAuthorStyle.Render(author) + ": " + strings.TrimPrefix(line, prefix)
 	}
@@ -473,7 +473,7 @@ func (p *PostsPageModel) adjustSelectedToViewport() {
 	if len(p.PostList) == 0 {
 		return
 	}
-	yOffset := p.PostViewport.YOffset
+	yOffset := p.PostViewport.YOffset()
 	visibleLines := p.PostViewport.VisibleLineCount()
 	lineIdx := 0
 	for i := 0; i < len(p.PostList); i++ {
@@ -525,7 +525,7 @@ func (p *PostsPageModel) pageMove(direction int) {
 	p.SelectedPostIdx = p.postIndexAtLine(p.CursorLine)
 
 	maxOffset := maxInt(0, totalLines-p.PostViewport.VisibleLineCount())
-	p.PostViewport.SetYOffset(clampInt(p.PostViewport.YOffset+delta, 0, maxOffset))
+	p.PostViewport.SetYOffset(clampInt(p.PostViewport.YOffset()+delta, 0, maxOffset))
 	p.scrollCursorIntoView()
 }
 
@@ -562,8 +562,8 @@ func (p *PostsPageModel) scrollCursorIntoView() {
 		bottomMargin = 1
 	}
 
-	topThreshold := p.PostViewport.YOffset + topMargin
-	bottomThreshold := p.PostViewport.YOffset + visibleLines - bottomMargin - 1
+	topThreshold := p.PostViewport.YOffset() + topMargin
+	bottomThreshold := p.PostViewport.YOffset() + visibleLines - bottomMargin - 1
 
 	if p.CursorLine < topThreshold {
 		newOffset := p.CursorLine - topMargin
@@ -877,8 +877,8 @@ func (p *PostsPageModel) detailBodyLineCount() int {
 		}
 	}
 	width := 20
-	if p.PostBodyViewport != nil && p.PostBodyViewport.Width > 0 {
-		width = p.PostBodyViewport.Width
+	if p.PostBodyViewport != nil && p.PostBodyViewport.Width() > 0 {
+		width = p.PostBodyViewport.Width()
 	}
 	lines := p.postDetailLines(*p.CurrentPost, p.detailBodyTextWidth(width))
 	return len(lines)
@@ -886,8 +886,8 @@ func (p *PostsPageModel) detailBodyLineCount() int {
 
 func (p *PostsPageModel) commentLineCount() int {
 	width := 20
-	if p.CommentViewport != nil && p.CommentViewport.Width > 0 {
-		width = p.CommentViewport.Width
+	if p.CommentViewport != nil && p.CommentViewport.Width() > 0 {
+		width = p.CommentViewport.Width()
 	}
 	if len(p.CommentList) == 0 {
 		if p.CommentListLoading || p.CommentListError != "" {
@@ -916,13 +916,13 @@ func (p *PostsPageModel) shouldPrefetchCommentsMore() bool {
 	if totalLines == 0 {
 		totalLines = p.commentLineCount()
 	}
-	bottom := p.CommentViewport.YOffset + p.CommentViewport.VisibleLineCount()
+	bottom := p.CommentViewport.YOffset() + p.CommentViewport.VisibleLineCount()
 	return totalLines-bottom <= 3
 }
 
 func (p PostsPageModel) currentListContentWidth() int {
-	if p.PostViewport != nil && p.PostViewport.Width > 0 {
-		return p.PostViewport.Width
+	if p.PostViewport != nil && p.PostViewport.Width() > 0 {
+		return p.PostViewport.Width()
 	}
 	return 20
 }
@@ -1267,7 +1267,7 @@ func (p *PostsPageModel) commentPageMove(direction int) {
 	p.SelectedCommentIdx = p.resolveCommentSelectionAtLine(p.CommentCursorLine, delta)
 
 	maxOffset := maxInt(0, totalLines-p.CommentViewport.VisibleLineCount())
-	p.CommentViewport.SetYOffset(clampInt(p.CommentViewport.YOffset+delta, 0, maxOffset))
+	p.CommentViewport.SetYOffset(clampInt(p.CommentViewport.YOffset()+delta, 0, maxOffset))
 	p.scrollCommentCursorIntoView()
 }
 
@@ -1310,8 +1310,8 @@ func (p *PostsPageModel) scrollCommentCursorIntoView() {
 		bottomMargin = 0
 	}
 
-	topThreshold := p.CommentViewport.YOffset + topMargin
-	bottomThreshold := p.CommentViewport.YOffset + visible - bottomMargin - 1
+	topThreshold := p.CommentViewport.YOffset() + topMargin
+	bottomThreshold := p.CommentViewport.YOffset() + visible - bottomMargin - 1
 	if p.CommentCursorLine < topThreshold {
 		p.CommentViewport.SetYOffset(maxInt(0, p.CommentCursorLine-topMargin))
 		return
@@ -1327,8 +1327,8 @@ func (p *PostsPageModel) commentLineRangeAt(index int) (int, int) {
 	}
 	line := 0
 	width := 20
-	if p.CommentViewport != nil && p.CommentViewport.Width > 0 {
-		width = p.CommentViewport.Width
+	if p.CommentViewport != nil && p.CommentViewport.Width() > 0 {
+		width = p.CommentViewport.Width()
 	}
 	for i, c := range p.orderedComments() {
 		start := line
@@ -1395,8 +1395,8 @@ func (p *PostsPageModel) commentIndexAtLine(target int) int {
 func (p *PostsPageModel) commentIndexAtLineWithBias(target, bias int) int {
 	line := 0
 	width := 20
-	if p.CommentViewport != nil && p.CommentViewport.Width > 0 {
-		width = p.CommentViewport.Width
+	if p.CommentViewport != nil && p.CommentViewport.Width() > 0 {
+		width = p.CommentViewport.Width()
 	}
 	for i, c := range p.orderedComments() {
 		commentLines := len(p.commentLogicalLines(c, width))

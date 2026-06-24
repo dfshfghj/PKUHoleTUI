@@ -1,42 +1,43 @@
 package tui
 
 import (
+	"image/color"
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 type themePalette struct {
-	bg           lipgloss.TerminalColor
-	surface      lipgloss.TerminalColor
-	border       lipgloss.TerminalColor
-	muted        lipgloss.TerminalColor
-	text         lipgloss.TerminalColor
-	textSoft     lipgloss.TerminalColor
-	accent       lipgloss.TerminalColor
-	accentStrong lipgloss.TerminalColor
-	accentSoft   lipgloss.TerminalColor
-	accentText   lipgloss.TerminalColor
-	link         lipgloss.TerminalColor
-	success      lipgloss.TerminalColor
-	warning      lipgloss.TerminalColor
+	bg           color.Color
+	surface      color.Color
+	border       color.Color
+	muted        color.Color
+	text         color.Color
+	textSoft     color.Color
+	accent       color.Color
+	accentStrong color.Color
+	accentSoft   color.Color
+	accentText   color.Color
+	link         color.Color
+	success      color.Color
+	warning      color.Color
 }
 
 var (
-	colorBg           lipgloss.TerminalColor
-	colorSurface      lipgloss.TerminalColor
-	colorBorder       lipgloss.TerminalColor
-	colorMuted        lipgloss.TerminalColor
-	colorText         lipgloss.TerminalColor
-	colorTextSoft     lipgloss.TerminalColor
-	colorAccent       lipgloss.TerminalColor
-	colorAccentStrong lipgloss.TerminalColor
-	colorAccentSoft   lipgloss.TerminalColor
-	colorAccentText   lipgloss.TerminalColor
-	colorLink         lipgloss.TerminalColor
-	colorSuccess      lipgloss.TerminalColor
-	colorWarning      lipgloss.TerminalColor
+	colorBg           color.Color
+	colorSurface      color.Color
+	colorBorder       color.Color
+	colorMuted        color.Color
+	colorText         color.Color
+	colorTextSoft     color.Color
+	colorAccent       color.Color
+	colorAccentStrong color.Color
+	colorAccentSoft   color.Color
+	colorAccentText   color.Color
+	colorLink         color.Color
+	colorSuccess      color.Color
+	colorWarning      color.Color
 
 	baseStyle lipgloss.Style
 
@@ -531,6 +532,6 @@ func shouldUseDarkTheme(mode string) bool {
 	case "light":
 		return false
 	default:
-		return lipgloss.HasDarkBackground()
+		return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	}
 }
