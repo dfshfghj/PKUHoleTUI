@@ -727,9 +727,10 @@ func (d courseScheduleDTO) toModel() models.CourseScheduleRow {
 
 func (d courseDayDTO) toModel() models.CourseDay {
 	return models.CourseDay{
-		CourseName: firstCourseTitle(d.CourseName),
-		Parity:     d.Parity,
-		Style:      d.Style,
+		CourseName:      firstCourseTitle(d.CourseName),
+		Parity:          d.Parity,
+		Style:           d.Style,
+		FullDescription: cleanCourseText(d.CourseName),
 	}
 }
 

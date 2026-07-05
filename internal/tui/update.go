@@ -422,6 +422,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m.handleComposerKey(msg)
 		case DialogTags:
 			return m.handleTagsDialogKey(msg)
+		case DialogCourseDetail:
+			if key.Matches(msg, shortcut.Escape) {
+				m.Dialog = DialogNone
+			}
+			return m, nil
 		}
 	}
 
@@ -490,6 +495,40 @@ func (m Model) handleScheduleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.Schedule.Loading = true
 		m.Schedule.Error = ""
 		return m, loadCourseScheduleCmd(m.Provider)
+	}
+	if len(m.Schedule.Rows) == 0 {
+		return m, nil
+	}
+	maxRow := len(m.Schedule.Rows) - 1
+	switch {
+	case key.Matches(msg, shortcut.Up, shortcut.VimUp):
+		if m.Schedule.CursorRow > 0 {
+			m.Schedule.CursorRow--
+		}
+	case key.Matches(msg, shortcut.Down, shortcut.VimDown):
+		if m.Schedule.CursorRow < maxRow {
+			m.Schedule.CursorRow++
+		}
+	case key.Matches(msg, shortcut.Left, shortcut.VimLeft):
+		if m.Schedule.CursorCol > 0 {
+			m.Schedule.CursorCol--
+		}
+	case key.Matches(msg, shortcut.Right, shortcut.VimRight):
+		if m.Schedule.CursorCol < 6 {
+			m.Schedule.CursorCol++
+		}
+	case key.Matches(msg, keymap.Direct.GoToTop):
+		m.Schedule.CursorRow = 0
+	case key.Matches(msg, shortcut.Enter):
+		day, timeNum, name, parity, desc := m.Schedule.SelectedCourse()
+		if name != "" {
+			m.CourseDetailDay = day
+			m.CourseDetailTime = timeNum
+			m.CourseDetailName = name
+			m.CourseDetailParity = parity
+			m.CourseDetailDescription = desc
+			m.Dialog = DialogCourseDetail
+		}
 	}
 	return m, nil
 }

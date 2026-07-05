@@ -323,9 +323,17 @@ func (m Model) contextualHelpItems() []helpItem {
 		bindings = append(bindings, globalTools...)
 	case m.Page == PageSchedule || m.Page == PageScores:
 		bindings = append(bindings, keymap.Direct.Tab, keymap.Direct.ShiftTab, keymap.Direct.Refresh)
+		if m.Page == PageSchedule {
+			bindings = append(bindings,
+				newKeyBinding([]string{"up", "down", "k", "j"}, "↑↓/kj", "选择行"),
+				newKeyBinding([]string{"left", "right", "h", "l"}, "←→/hl", "选择列"),
+				keymap.Direct.GoToTop,
+				keymap.Direct.OpenDetail,
+			)
+		}
 		if m.Page == PageScores {
 			bindings = append(bindings,
-				newKeyBinding([]string{"up", "down"}, "↑↓", "滚动成绩"),
+				newKeyBinding([]string{"up", "down", "k", "j"}, "↑↓/kj", "滚动成绩"),
 				newKeyBinding([]string{"pgup", "pgdown"}, "PgUp/PgDn", "成绩翻页"),
 			)
 		}

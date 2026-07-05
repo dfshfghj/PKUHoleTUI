@@ -128,6 +128,8 @@ func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
 		body, placements = m.renderPanelScreen(width, height, m.renderComposerPanelContent)
 	case DialogImage:
 		body, placements = m.renderImagePanelScreen(width, height)
+	case DialogCourseDetail:
+		body, placements = m.renderCourseDetailPanelScreen(width, height)
 	default:
 		var base string
 		var p []imagePlacement
@@ -632,6 +634,8 @@ func (m Model) dialogStatusSummary() string {
 		return "Tab: 切换输入区 | Ctrl+S: 提交 | Esc: 取消"
 	case DialogTags:
 		return "Enter: 选择标签 | c: 清除筛选 | Esc: 关闭"
+	case DialogCourseDetail:
+		return ""
 	default:
 		return "?: 帮助 | q: 退出"
 	}
@@ -904,4 +908,70 @@ func clipToVisibleWidth(s string, width int) string {
 func (m Model) renderDialogCard(content string) string {
 	width := minInt(70, maxInt(40, m.Width-8))
 	return dialogCard.Width(width).Render(content)
+}
+
+func (m Model) renderCourseDetailPanelScreen(width, height int) (string, []imagePlacement) {
+	mainModel := m
+	mainModel.Dialog = DialogNone
+	main, _ := mainModel.renderMainLayout(width, height)
+
+	statusLineHeight := lipgloss.Height(m.renderStatusLine(width))
+	availableHeight := maxInt(1, height-statusLineHeight)
+	panelW := width * 2 / 3
+	lineCount := strings.Count(m.CourseDetailDescription, "\n") + 1
+	if lineCount < 5 {
+		lineCount = 5
+	}
+	panelH := lineCount + panelContentStyle.GetVerticalFrameSize() + 3
+	if panelW < 30 {
+		panelW = 30
+	}
+	if panelW > width {
+		panelW = width
+	}
+	if panelH > availableHeight {
+		panelH = availableHeight
+	}
+
+	panelX := (width - panelW) / 2
+	panelY := (availableHeight - panelH) / 2
+
+	content := m.renderCourseDetailContent(panelW, panelH)
+	panel := panelContentStyle.Width(panelW).MaxHeight(panelH).Render(content)
+
+	baseLayer := lipgloss.NewLayer(main)
+	panelLayer := lipgloss.NewLayer(panel).X(panelX).Y(panelY).Z(1)
+	body := lipgloss.NewCompositor(baseLayer, panelLayer).Render()
+	return m.overlayStatusLine(width, height, body), nil
+}
+
+func (m Model) renderCourseDetailContent(panelW, panelH int) string {
+	innerWidth := maxInt(20, panelW-panelContentStyle.GetHorizontalFrameSize())
+	var b strings.Builder
+	b.WriteString(vDialogTitleStyle.Render("课程详情"))
+	b.WriteString("\n\n")
+	if m.CourseDetailDescription != "" {
+		for _, line := range strings.Split(m.CourseDetailDescription, "\n") {
+			b.WriteString(vStatValueStyle.Render(line))
+			b.WriteString("\n")
+		}
+	} else {
+		labelW := 8
+		b.WriteString(vStatLabelStyle.Width(labelW).Render("星期"))
+		b.WriteString(vStatValueStyle.Render(m.CourseDetailDay))
+		b.WriteString("\n")
+		b.WriteString(vStatLabelStyle.Width(labelW).Render("节次"))
+		b.WriteString(vStatValueStyle.Render(m.CourseDetailTime))
+		b.WriteString("\n")
+		b.WriteString(vStatLabelStyle.Width(labelW).Render("课程"))
+		b.WriteString(vStatValueStyle.Width(innerWidth - labelW).Render(m.CourseDetailName))
+		b.WriteString("\n")
+		if m.CourseDetailParity != "" {
+			b.WriteString(vStatLabelStyle.Width(labelW).Render("单双周"))
+			b.WriteString(vStatValueStyle.Render(m.CourseDetailParity))
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
 }

@@ -10,9 +10,11 @@ import (
 )
 
 type CourseSchedulePageModel struct {
-	Rows    []models.CourseScheduleRow
-	Loading bool
-	Error   string
+	Rows      []models.CourseScheduleRow
+	Loading   bool
+	Error     string
+	CursorRow int
+	CursorCol int
 }
 
 type ScorePageModel struct {
@@ -59,21 +61,36 @@ func (p CourseSchedulePageModel) View(width, height int) string {
 	}
 	timeWidth := 4
 	cellWidth := maxInt(6, (bodyWidth-timeWidth-len(days))/len(days))
+	cursorStyle := lipgloss.NewStyle().
+		Foreground(colorAccent).
+		Bold(true)
 	b.WriteString(vStatLabelStyle.Width(timeWidth).Render("节次"))
-	for _, day := range days {
+	for col, day := range days {
 		b.WriteString(" ")
-		b.WriteString(vStatLabelStyle.Width(cellWidth).Render(day.label))
+		if p.CursorRow == -1 && p.CursorCol == col {
+			b.WriteString(cursorStyle.Width(cellWidth).Render(day.label))
+		} else {
+			b.WriteString(vStatLabelStyle.Width(cellWidth).Render(day.label))
+		}
 	}
-	for _, row := range p.Rows {
+	for rowIdx, row := range p.Rows {
 		b.WriteString("\n")
-		b.WriteString(vStatValueStyle.Width(timeWidth).Render(shortenCell(row.TimeNum, timeWidth)))
-		for _, day := range days {
+		if p.CursorRow == rowIdx && p.CursorCol == -1 {
+			b.WriteString(cursorStyle.Width(timeWidth).Render(shortenCell(row.TimeNum, timeWidth)))
+		} else {
+			b.WriteString(vStatValueStyle.Width(timeWidth).Render(shortenCell(row.TimeNum, timeWidth)))
+		}
+		for colIdx, day := range days {
 			b.WriteString(" ")
 			value := shortenCell(day.get(row), cellWidth)
 			if value == "" {
 				value = "-"
 			}
-			b.WriteString(vStatValueStyle.Width(cellWidth).MaxWidth(cellWidth).Render(value))
+			if p.CursorRow == rowIdx && p.CursorCol == colIdx {
+				b.WriteString(cursorStyle.Width(cellWidth).MaxWidth(cellWidth).Render(value))
+			} else {
+				b.WriteString(vStatValueStyle.Width(cellWidth).MaxWidth(cellWidth).Render(value))
+			}
 		}
 	}
 	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, b.String())
@@ -160,6 +177,30 @@ func (p *ScorePageModel) Move(delta, height int) {
 	availableRows := maxInt(1, height-16)
 	maxOffset := maxInt(0, len(p.Summary.Scores)-availableRows)
 	p.Offset = clampInt(p.Offset+delta, 0, maxOffset)
+}
+
+func (p *CourseSchedulePageModel) SelectedCourse() (day, timeNum, name, parity, description string) {
+	if len(p.Rows) == 0 || p.CursorRow < 0 || p.CursorRow >= len(p.Rows) {
+		return "", "", "", "", ""
+	}
+	row := p.Rows[p.CursorRow]
+	timeNum = row.TimeNum
+	dayNames := []string{"周一", "周二", "周三", "周四", "周五", "周六", "周日"}
+	getDays := []func(models.CourseScheduleRow) models.CourseDay{
+		func(r models.CourseScheduleRow) models.CourseDay { return r.Mon },
+		func(r models.CourseScheduleRow) models.CourseDay { return r.Tue },
+		func(r models.CourseScheduleRow) models.CourseDay { return r.Wed },
+		func(r models.CourseScheduleRow) models.CourseDay { return r.Thu },
+		func(r models.CourseScheduleRow) models.CourseDay { return r.Fri },
+		func(r models.CourseScheduleRow) models.CourseDay { return r.Sat },
+		func(r models.CourseScheduleRow) models.CourseDay { return r.Sun },
+	}
+	if p.CursorCol < 0 || p.CursorCol >= len(dayNames) {
+		return "", timeNum, "", "", ""
+	}
+	day = dayNames[p.CursorCol]
+	cd := getDays[p.CursorCol](row)
+	return day, timeNum, cd.CourseName, cd.Parity, cd.FullDescription
 }
 
 func shortenCell(text string, width int) string {

@@ -34,6 +34,7 @@ const (
 	DialogAuthChallenge
 	DialogComposer
 	DialogTags
+	DialogCourseDetail
 )
 
 type CrawlerState int
@@ -265,6 +266,12 @@ type Model struct {
 	AuthDialog    AuthChallengeDialogModel
 	Composer      ComposerDialogModel
 	TagsDialog    TagsDialogModel
+
+	CourseDetailDay         string
+	CourseDetailTime        string
+	CourseDetailName        string
+	CourseDetailParity      string
+	CourseDetailDescription string
 
 	LastError string
 	Capture   *CaptureSink

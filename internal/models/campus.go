@@ -1,9 +1,10 @@
 package models
 
 type CourseDay struct {
-	CourseName string `json:"courseName"`
-	Parity     string `json:"parity"`
-	Style      string `json:"sty"`
+	CourseName      string `json:"courseName"`
+	Parity          string `json:"parity"`
+	Style           string `json:"sty"`
+	FullDescription string `json:"-"`
 }
 
 type CourseScheduleRow struct {
