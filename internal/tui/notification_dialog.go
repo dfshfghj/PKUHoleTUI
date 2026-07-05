@@ -116,11 +116,11 @@ func (m *NotificationDialogModel) MarkAllRead() {
 // Update returns true when the active message type changed and must be reloaded.
 func (m *NotificationDialogModel) Update(msg tea.KeyPressMsg) bool {
 	switch {
-	case key.Matches(msg, shortcut.Up):
+	case key.Matches(msg, shortcut.Up, shortcut.VimUp):
 		if m.selected > 0 {
 			m.selected--
 		}
-	case key.Matches(msg, shortcut.Down):
+	case key.Matches(msg, shortcut.Down, shortcut.VimDown):
 		if m.selected < len(m.items)-1 {
 			m.selected++
 		}

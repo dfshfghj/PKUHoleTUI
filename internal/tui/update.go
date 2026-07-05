@@ -500,9 +500,9 @@ func (m Model) handleScoresKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.Scores.Loading = true
 		m.Scores.Error = ""
 		return m, loadScoresCmd(m.Provider)
-	case key.Matches(msg, shortcut.Up):
+	case key.Matches(msg, shortcut.Up, shortcut.VimUp):
 		m.Scores.Move(-1, m.contentAreaHeightForSize(m.Width, m.Height))
-	case key.Matches(msg, shortcut.Down):
+	case key.Matches(msg, shortcut.Down, shortcut.VimDown):
 		m.Scores.Move(1, m.contentAreaHeightForSize(m.Width, m.Height))
 	case key.Matches(msg, shortcut.PgUp):
 		m.Scores.Move(-maxInt(1, m.contentAreaHeightForSize(m.Width, m.Height)-16), m.contentAreaHeightForSize(m.Width, m.Height))
@@ -671,13 +671,13 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				m.Dialog = DialogComposer
 				return m, nil
 			}
-		case key.Matches(msg, shortcut.Up):
+		case key.Matches(msg, shortcut.Up, shortcut.VimUp):
 			if m.Posts.DetailFocus == DetailFocusPost {
 				m.Posts.PostBodyViewport.ScrollUp(1)
 			} else {
 				m.Posts.moveCommentSelection(-1)
 			}
-		case key.Matches(msg, shortcut.Down):
+		case key.Matches(msg, shortcut.Down, shortcut.VimDown):
 			if m.Posts.DetailFocus == DetailFocusPost {
 				m.Posts.PostBodyViewport.ScrollDown(1)
 			} else {
@@ -775,9 +775,9 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		if post := m.Posts.SelectedPost(); post != nil {
 			return m, toggleAttentionCmd(m.Provider, post.Pid)
 		}
-	case key.Matches(msg, shortcut.Up):
+	case key.Matches(msg, shortcut.Up, shortcut.VimUp):
 		m.Posts.moveCursor(-1)
-	case key.Matches(msg, shortcut.Down):
+	case key.Matches(msg, shortcut.Down, shortcut.VimDown):
 		m.Posts.moveCursor(1)
 		if m.Posts.shouldPrefetchMore() {
 			m.Posts.PostListLoading = true

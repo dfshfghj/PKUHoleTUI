@@ -60,11 +60,11 @@ func (m *LogsDialogModel) Loading() bool {
 
 func (m *LogsDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
-	case key.Matches(msg, shortcut.Up):
+	case key.Matches(msg, shortcut.Up, shortcut.VimUp):
 		if m.offset > 0 {
 			m.offset--
 		}
-	case key.Matches(msg, shortcut.Down):
+	case key.Matches(msg, shortcut.Down, shortcut.VimDown):
 		if m.offset < len(m.lines)-1 {
 			m.offset++
 		}
