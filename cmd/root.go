@@ -36,19 +36,19 @@ func init() {
 }
 
 var (
-	dbPath          string
-	startPage       int
-	maxPages        int
-	pageInterval    int
-	loopInterval    int
-	resume          bool
-	loopPages       int
-	saveJSON        bool
-	postsPerReq     int
-	commentsPerPost int
-	fetchImages     bool
-	convertWebp     bool
-	tuiCaptureDir   string
+	dbPath        string
+	startPage     int
+	pagesPerRound int
+	pageDelay     int
+	loopDelay     int
+	resume        bool
+	loopCrawl     bool
+	saveRawJSON   bool
+	postBatchSize int
+	commentLimit  int
+	fetchImages   bool
+	convertWebp   bool
+	tuiCaptureDir string
 )
 
 func NewRootCmd() *cobra.Command {
@@ -196,13 +196,16 @@ func runDaemon() error {
 		log.Printf("[Daemon] 断点续爬模式已启用，但未保存断点页码；将从配置的第 %d 页开始", startPage)
 	}
 
-	monitorMode := loopPages > 0
-	if monitorMode {
-		log.Printf("[Daemon] 监控模式启动: 循环抓取前 %d 页, 每轮间隔 %ds", loopPages, loopInterval)
-	} else if maxPages == 0 {
-		log.Printf("[Daemon] 无限抓取模式启动: 从第 %d 页开始, 每页间隔 %ds", startPage, pageInterval)
+	if loopCrawl {
+		if pagesPerRound == 0 {
+			log.Printf("[Daemon] 循环模式启动: 从第 %d 页开始每轮无限抓取, 每轮间隔 %ds", startPage, loopDelay)
+		} else {
+			log.Printf("[Daemon] 循环模式启动: 从第 %d 页开始每轮抓取 %d 页, 每轮间隔 %ds", startPage, pagesPerRound, loopDelay)
+		}
+	} else if pagesPerRound == 0 {
+		log.Printf("[Daemon] 无限抓取模式启动: 从第 %d 页开始, 每页间隔 %ds", startPage, pageDelay)
 	} else {
-		log.Printf("[Daemon] 一次性抓取模式启动: 从第 %d 页开始, 抓取 %d 页", startPage, maxPages)
+		log.Printf("[Daemon] 一次性抓取模式启动: 从第 %d 页开始, 抓取 %d 页", startPage, pagesPerRound)
 	}
 
 	page := startPage
@@ -214,7 +217,7 @@ func runDaemon() error {
 		select {
 		case <-sigCh:
 			log.Printf("[Daemon] 收到退出信号，正在优雅停止...")
-			if saveJSON && crawler.RawResponses() > 0 {
+			if saveRawJSON && crawler.RawResponses() > 0 {
 				// 保存所有收集的原始响应到JSON文件
 				if err := crawler.SaveRawResponsesToFile(); err != nil {
 					log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
@@ -226,18 +229,13 @@ func runDaemon() error {
 		default:
 		}
 
-		if monitorMode {
-			page = 1
-		}
+		page = startPage
 
 		round++
 		log.Printf("[Daemon] 开始第 %d 轮抓取", round)
 
 		crawled := 0
-		limit := maxPages
-		if monitorMode {
-			limit = loopPages
-		}
+		limit := pagesPerRound
 
 		for {
 			select {
@@ -251,10 +249,10 @@ func runDaemon() error {
 				break
 			}
 
-			result, err := crawler.FetchAndSave(client, database, page, saveJSON, postsPerReq, commentsPerPost, fetchImages, convertWebp)
+			result, err := crawler.FetchAndSave(client, database, page, saveRawJSON, postBatchSize, commentLimit, fetchImages, convertWebp)
 			if err != nil {
 				log.Printf("[Daemon] 第 %d 页抓取失败: %v", page, err)
-				time.Sleep(time.Duration(pageInterval) * time.Second)
+				time.Sleep(time.Duration(pageDelay) * time.Second)
 				page++
 				continue
 			}
@@ -272,12 +270,12 @@ func runDaemon() error {
 				break
 			}
 
-			time.Sleep(time.Duration(pageInterval) * time.Second)
+			time.Sleep(time.Duration(pageDelay) * time.Second)
 		}
 
-		if !monitorMode && maxPages > 0 {
+		if !loopCrawl && pagesPerRound > 0 {
 			log.Printf("[Daemon] 抓取完成! 共处理 %d 页, +%d帖子 +%d评论", crawled, totalPosts, totalComments)
-			if saveJSON {
+			if saveRawJSON {
 				// 保存所有收集的原始响应到JSON文件
 				if err := crawler.SaveRawResponsesToFile(); err != nil {
 					log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
@@ -288,14 +286,16 @@ func runDaemon() error {
 			return nil
 		}
 
-		if monitorMode {
-			log.Printf("[Daemon] 第 %d 轮完成, 等待 %ds 后开始下一轮...", round, loopInterval)
+		if loopCrawl {
+			log.Printf("[Daemon] 第 %d 轮完成, 等待 %ds 后开始下一轮...", round, loopDelay)
+		} else {
+			log.Printf("[Daemon] 无限抓取模式继续从第 %d 页开始", page)
 		}
 
 		select {
 		case <-sigCh:
 			log.Printf("[Daemon] 收到退出信号，正在优雅停止...")
-			if saveJSON && crawler.RawResponses() > 0 {
+			if saveRawJSON && crawler.RawResponses() > 0 {
 				// 保存所有收集的原始响应到JSON文件
 				if err := crawler.SaveRawResponsesToFile(); err != nil {
 					log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
@@ -304,7 +304,7 @@ func runDaemon() error {
 				}
 			}
 			return nil
-		case <-time.After(time.Duration(loopInterval) * time.Second):
+		case <-time.After(time.Duration(loopDelay) * time.Second):
 		}
 	}
 }

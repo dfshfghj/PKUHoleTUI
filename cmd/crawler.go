@@ -10,22 +10,22 @@ func newCrawlerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "crawler",
 		Short: "Run the crawler",
-		Long:  `启动 PKU Hole 爬虫，支持一次性抓取、无限抓取和监控模式。`,
+		Long:  `启动 PKU Hole 爬虫，支持一次性抓取、无限抓取和循环抓取。`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemon()
 		},
 	}
 
-	cmd.Flags().IntVar(&startPage, "start-page", 1, "starting page number")
-	cmd.Flags().IntVar(&maxPages, "max-pages", 0, "max pages to crawl per round (0 = infinite)")
-	cmd.Flags().IntVar(&pageInterval, "page-interval", 1, "seconds between each page crawl")
-	cmd.Flags().IntVar(&loopInterval, "loop-interval", 60, "seconds between rounds in loop mode")
-	cmd.Flags().BoolVar(&resume, "resume", false, "resume from last crawled page")
-	cmd.Flags().IntVarP(&loopPages, "loop-pages", "k", 0, "loop mode: repeatedly crawl first N pages")
-	cmd.Flags().BoolVar(&saveJSON, "save-json", false, "save raw API responses to JSON files for analysis")
-	cmd.Flags().IntVar(&postsPerReq, "posts-per-request", 200, "max posts per API request")
-	cmd.Flags().IntVar(&commentsPerPost, "comments-per-post", 200, "max comments per post in API request")
-	cmd.Flags().BoolVar(&fetchImages, "fetch-images", false, "download images from posts with type=\"image\"")
+	cmd.Flags().IntVar(&startPage, "start-page", 1, "first page to crawl")
+	cmd.Flags().IntVar(&pagesPerRound, "pages", 0, "number of pages to crawl per round; 0 means unlimited")
+	cmd.Flags().BoolVar(&loopCrawl, "loop", false, "continuously repeat crawl rounds")
+	cmd.Flags().IntVar(&loopDelay, "loop-delay", 60, "seconds between crawl rounds")
+	cmd.Flags().IntVar(&pageDelay, "page-delay", 1, "seconds between page requests")
+	cmd.Flags().BoolVar(&resume, "resume", false, "resume from saved crawl state")
+	cmd.Flags().BoolVar(&saveRawJSON, "save-raw-json", false, "save raw API responses as JSON files")
+	cmd.Flags().IntVar(&postBatchSize, "post-batch-size", 200, "posts requested per API call")
+	cmd.Flags().IntVar(&commentLimit, "comment-limit", 200, "max comments to fetch per post")
+	cmd.Flags().BoolVar(&fetchImages, "fetch-images", false, "download images from image posts")
 	cmd.Flags().BoolVar(&convertWebp, "convert-webp", true, "convert downloaded images to WebP format")
 
 	cmd.AddCommand(newFetchImagesCmd())

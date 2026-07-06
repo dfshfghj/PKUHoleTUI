@@ -157,25 +157,25 @@ Posts 页按 `Esc` 可清除当前搜索词和标签筛选，恢复全部帖子�
 
 ```bash
 # 一次性抓取：从第1页开始，抓100页，每页间隔1秒
-./treehole crawler --max-pages 100 --page-interval 1
+./treehole crawler --pages 100 --page-delay 1
 
 # 从第5页开始，抓取50页
-./treehole crawler --start-page 5 --max-pages 50
+./treehole crawler --start-page 5 --pages 50
 
 # 无限循环抓取：从第1页开始一直往后爬
-./treehole crawler --page-interval 1
+./treehole crawler --page-delay 1
 
 # 断点续采：根据数据库已有帖子数自动计算起始页
-./treehole crawler --resume --max-pages 50
+./treehole crawler --resume --pages 50
 
-# 监控模式：循环抓取前10页，每页间隔2秒，每轮间隔60秒
-./treehole crawler --loop-pages 10 --page-interval 2 --loop-interval 60
+# 循环模式：每轮抓取前10页，每页间隔2秒，每轮间隔60秒
+./treehole crawler --pages 10 --loop --page-delay 2 --loop-delay 60
 
 # 下载帖子中的图片
-./treehole crawler --max-pages 50 --fetch-images
+./treehole crawler --pages 50 --fetch-images
 
 # 保存原始 API 响应到 JSON 文件
-./treehole crawler --max-pages 50 --save-json
+./treehole crawler --pages 50 --save-raw-json
 
 # 补下载数据库中缺失的图片
 ./treehole crawler fetch-images
@@ -187,25 +187,25 @@ Posts 页按 `Esc` 可清除当前搜索词和标签筛选，恢复全部帖子�
 |------|------|------|--------|
 | `--db-path` | | 数据库文件路径 | `./treehole.db` |
 | `--start-page` | | 起始页码 | `1` |
-| `--max-pages` | | 每轮最大页数（0=无限） | `0` |
-| `--page-interval` | | 页与页之间的间隔（秒） | `1` |
-| `--loop-interval` | | 轮与轮之间的间隔（秒） | `60` |
-| `--loop-pages` | `-k` | 循环爬取前 N 页（触发监控模式） | `0` |
+| `--pages` | | 每轮抓取页数（0=无限） | `0` |
+| `--loop` | | 持续重复抓取轮次 | `false` |
+| `--loop-delay` | | 轮与轮之间的间隔（秒） | `60` |
+| `--page-delay` | | 页与页之间的间隔（秒） | `1` |
 | `--resume` | | 断点续爬 | `false` |
-| `--posts-per-request` | | 每次 API 请求最大帖子数 | `200` |
-| `--comments-per-post` | | 每个帖子最大评论数 | `200` |
+| `--post-batch-size` | | 每次 API 请求最大帖子数 | `200` |
+| `--comment-limit` | | 每个帖子最大评论数 | `200` |
 | `--fetch-images` | | 下载帖子中的图片 | `false` |
-| `--save-json` | | 保存原始 API 响应 | `false` |
+| `--save-raw-json` | | 保存原始 API 响应 | `false` |
 
 ### 运行模式对比
 
 | 模式 | 命令 | 适用场景 |
 |------|------|---------|
 | TUI | `./treehole` | 交互式浏览、搜索、管理 |
-| 一次性抓取 | `crawler --max-pages 100` | 首次全量数据采集 |
+| 一次性抓取 | `crawler --pages 100` | 首次全量数据采集 |
 | 无限循环 | `crawler` | 持续增量采集 |
 | 断点续爬 | `crawler --resume` | 中断后继续 |
-| 监控模式 | `crawler --loop-pages 10` | 同步最新数据（循环前 N 页） |
+| 循环模式 | `crawler --pages 10 --loop` | 同步固定页段（重复轮次） |
 
 ### REST API 服务 (`server` 子命令)
 
@@ -226,10 +226,10 @@ Posts 页按 `Esc` 可清除当前搜索词和标签筛选，恢复全部帖子�
 
 ```bash
 # 后台监控模式
-nohup ./treehole crawler --loop-pages 10 --page-interval 2 --loop-interval 60 &
+nohup ./treehole crawler --pages 10 --loop --page-delay 2 --loop-delay 60 &
 
 # 后台无限抓取
-nohup ./treehole crawler --page-interval 1 &
+nohup ./treehole crawler --page-delay 1 &
 
 # 按 Ctrl+C 或 kill 发送 SIGINT/SIGTERM 可退出
 ```
