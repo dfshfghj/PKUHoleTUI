@@ -52,7 +52,7 @@ type Post struct {
 	Type            string    `json:"type" gorm:"column:type"`
 	Timestamp       int32     `json:"timestamp" gorm:"column:timestamp"`
 	Hidden          BoolInt   `json:"hidden" gorm:"column:hidden"`
-	Reply           int16     `json:"reply" gorm:"column:reply;index:idx_posts_reply"`
+	Reply           int32     `json:"reply" gorm:"column:reply;index:idx_posts_reply"`
 	Likenum         int16     `json:"likenum" gorm:"column:likenum;index:idx_posts_likenum"`
 	Extra           int32     `json:"extra" gorm:"column:extra"`
 	Anonymous       BoolInt   `json:"anonymous" gorm:"column:anonymous"`

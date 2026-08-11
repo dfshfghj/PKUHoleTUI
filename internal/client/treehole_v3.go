@@ -816,7 +816,7 @@ type postDTO struct {
 	Type            string       `json:"type"`
 	Timestamp       int32        `json:"timestamp"`
 	Hidden          int          `json:"hidden"`
-	Reply           int16        `json:"reply"`
+	Reply           int32        `json:"reply"`
 	Likenum         int16        `json:"likenum"`
 	Extra           int32        `json:"extra"`
 	Anonymous       int          `json:"anonymous"`
