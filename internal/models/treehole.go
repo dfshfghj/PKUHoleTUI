@@ -58,7 +58,7 @@ type Post struct {
 	Anonymous       BoolInt   `json:"anonymous" gorm:"column:anonymous"`
 	Protected       int16     `json:"protected" gorm:"column:protected"`
 	IsTop           BoolInt   `json:"is_top" gorm:"column:is_top"`
-	Label           int16     `json:"label" gorm:"column:label"`
+	Label           int32     `json:"label" gorm:"column:label"`
 	Status          int16     `json:"status" gorm:"column:status"`
 	IsComment       BoolInt   `json:"is_comment" gorm:"column:is_comment"`
 	TagsIds         string    `json:"tags_ids" gorm:"column:tags_ids"`

@@ -124,7 +124,7 @@ type TempPost struct {
 	Anonymous       int           `json:"anonymous"`
 	Protected       int16         `json:"protected"`
 	IsTop           int           `json:"is_top"`
-	Label           int16         `json:"label"`
+	Label           int32         `json:"label"`
 	Status          int16         `json:"status"`
 	IsComment       int           `json:"is_comment"`
 	TagsIds         string        `json:"tags_ids"`
