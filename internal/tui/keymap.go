@@ -632,9 +632,15 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 	if input == "" {
 		return m, nil
 	}
-	fields := strings.Fields(input)
+	fields, err := splitCommandLine(input)
+	if err != nil {
+		return m, m.showToast("命令解析失败: " + err.Error())
+	}
+	if len(fields) == 0 {
+		return m, nil
+	}
 	name := strings.ToLower(fields[0])
-	arg := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
+	arg := strings.Join(fields[1:], " ")
 
 	switch name {
 	case "help":
@@ -680,6 +686,8 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 		m.Dialog = DialogNone
 		m.Posts.PostListLoading = true
 		return m, tea.Batch(offlineCmd, loadPostsCmd(m.Provider, 0, m.Posts.PostPerPage, 0))
+	case "crawler":
+		return m.executeCrawlerCommand(fields[1:])
 	default:
 		return m, m.showToast("未知命令: :" + input)
 	}

@@ -70,10 +70,25 @@ const (
 )
 
 type CrawlMsg struct {
-	Page     int
-	Duration time.Duration
-	Summary  string
-	Error    error
+	Page         int
+	Duration     time.Duration
+	Summary      string
+	PostCount    int
+	CommentCount int
+	Error        error
+}
+
+type CrawlerRunState struct {
+	Active        bool
+	StartPage     int
+	PagesPerRound int
+	Loop          bool
+	LoopDelay     int
+	PageDelay     int
+	PagesCrawled  int
+	Round         int
+	RoundPosts    int
+	RoundComments int
 }
 
 type TickMsg time.Time

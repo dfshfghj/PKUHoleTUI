@@ -115,7 +115,7 @@ func (m LogsDialogModel) View(width, height int) string {
 		b.WriteString("\n")
 		totalLines := len(m.lines)
 		pagination := vPaginationStyle.Render(
-			fmt.Sprintf("日志: %d 行 | 当前: %d-%d | r: 刷新",
+			fmt.Sprintf("日志: %d 行 | 当前: %d-%d",
 				totalLines, m.offset+1, minInt(end, totalLines)),
 		)
 		b.WriteString(fillRenderedBackground(pagination, innerWidth, fill))

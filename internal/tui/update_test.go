@@ -495,6 +495,62 @@ func TestCommandSearchAndClearPostsFilters(t *testing.T) {
 	}
 }
 
+func TestExecuteCrawlerCommandParsesShellStyleFlags(t *testing.T) {
+	m := newTestModel()
+	m.Client = &client.Client{}
+
+	result, cmd := m.executeCommand(`crawler --start-page 3 --pages 5 --loop --loop-delay 7 --page-delay 2 --fetch-images --save-raw-json --post-batch-size 80 --comment-limit 90`)
+	if cmd == nil {
+		t.Fatal(":crawler should trigger crawl command")
+	}
+	if result.Home.CrawlerState != CrawlerRunning {
+		t.Fatalf("crawler state = %v, want running", result.Home.CrawlerState)
+	}
+	if !result.Home.CrawlerRun.Active {
+		t.Fatal("crawler run state should be active")
+	}
+	if result.Home.StartPage != 3 || result.Home.CrawlerRun.StartPage != 3 {
+		t.Fatalf("start page = %d/%d, want 3", result.Home.StartPage, result.Home.CrawlerRun.StartPage)
+	}
+	if result.Home.PagesPerRound != 5 || result.Home.CrawlerRun.PagesPerRound != 5 {
+		t.Fatalf("pages per round = %d/%d, want 5", result.Home.PagesPerRound, result.Home.CrawlerRun.PagesPerRound)
+	}
+	if !result.Home.LoopEnabled || !result.Home.CrawlerRun.Loop {
+		t.Fatal("loop should be enabled")
+	}
+	if result.Home.PageDelaySeconds != 2 || result.Home.CrawlerRun.PageDelay != 2 {
+		t.Fatalf("page delay = %d/%d, want 2", result.Home.PageDelaySeconds, result.Home.CrawlerRun.PageDelay)
+	}
+	if result.Home.LoopDelaySeconds != 7 || result.Home.CrawlerRun.LoopDelay != 7 {
+		t.Fatalf("loop delay = %d/%d, want 7", result.Home.LoopDelaySeconds, result.Home.CrawlerRun.LoopDelay)
+	}
+	if !result.Home.FetchImages || !result.Home.SaveJSON {
+		t.Fatal("fetch-images and save-raw-json should be enabled")
+	}
+	if result.Home.PostsPerRequest != 80 || result.Home.CommentsPerPost != 90 {
+		t.Fatalf("batch/comment = %d/%d, want 80/90", result.Home.PostsPerRequest, result.Home.CommentsPerPost)
+	}
+}
+
+func TestExecuteCrawlerCommandSupportsFetchThumbnails(t *testing.T) {
+	m := newTestModel()
+	m.Client = &client.Client{}
+
+	result, cmd := m.executeCommand(`crawler fetch-thumbnails --start-id 10 --end-id 20 --convert-webp`)
+	if cmd == nil {
+		t.Fatal(":crawler fetch-thumbnails should trigger command")
+	}
+	if result.Home.CrawlMode != CrawlFetchThumbnails {
+		t.Fatalf("crawl mode = %v, want fetch-thumbnails", result.Home.CrawlMode)
+	}
+	if result.Home.ThumbnailStartID != 10 || result.Home.ThumbnailEndID != 20 {
+		t.Fatalf("thumbnail range = %d-%d, want 10-20", result.Home.ThumbnailStartID, result.Home.ThumbnailEndID)
+	}
+	if !result.Home.ConvertWebp {
+		t.Fatal("convert-webp should be enabled")
+	}
+}
+
 func TestToolsDialogSwitchesSectionsWithoutNestedTabs(t *testing.T) {
 	m := newTestModel()
 	m.Dialog = DialogTools

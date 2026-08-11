@@ -15,7 +15,13 @@ type HomePageModel struct {
 	LoginUser        string
 	CrawlerState     CrawlerState
 	CrawlerStart     time.Time
+	CrawlerRun       CrawlerRunState
 	CrawlMode        CrawlMode
+	StartPage        int
+	PagesPerRound    int
+	LoopEnabled      bool
+	LoopDelaySeconds int
+	PageDelaySeconds int
 	MonitorPages     int
 	PostsPerRequest  int
 	CommentsPerPost  int
@@ -45,6 +51,10 @@ func NewHomePageModel() HomePageModel {
 	return HomePageModel{
 		CrawlerState:     CrawlerStopped,
 		CrawlMode:        CrawlSequential,
+		StartPage:        1,
+		PagesPerRound:    0,
+		LoopDelaySeconds: 60,
+		PageDelaySeconds: 1,
 		MonitorPages:     3,
 		PostsPerRequest:  200,
 		CommentsPerPost:  200,

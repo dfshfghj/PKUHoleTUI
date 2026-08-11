@@ -72,16 +72,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			log.Printf("[Crawler] 爬虫错误: 第 %d 页, %v", msg.Page, msg.Error)
 			m.Home.CrawlerState = CrawlerError
 			m.Home.HomeLastError = msg.Error.Error()
+			m.Home.CrawlerRun.Active = false
 		} else {
 			m.Home.LastCrawlPage = msg.Page
 			m.Home.LastCrawlTime = msg.Duration
 			m.Home.LastCrawlSummary = msg.Summary
 			if m.Home.CrawlerState == CrawlerRunning {
-				if m.Home.CrawlMode == CrawlMonitor {
-					return m, crawlMonitorWithOptionsCmd(m.Client, m.Database, m.Home)
-				}
-				if m.Home.CrawlMode == CrawlSequential {
-					return m, crawlPageWithOptionsCmd(m.Client, m.Database, msg.Page+1, m.Home)
+				if m.Home.CrawlMode == CrawlSequential || m.Home.CrawlMode == CrawlMonitor {
+					if !m.Home.CrawlerRun.Active {
+						if m.Home.CrawlMode == CrawlMonitor {
+							return m, crawlMonitorWithOptionsCmd(m.Client, m.Database, m.Home)
+						}
+						return m, crawlPageWithOptionsCmd(m.Client, m.Database, msg.Page+1, m.Home)
+					}
+					next, cmd := m.advanceCrawlerRun(msg)
+					return next, cmd
 				}
 				m.Home.CrawlerState = CrawlerStopped
 			}
@@ -475,7 +480,12 @@ func (m Model) handleHomeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch action {
 	case HomeActionStartCrawler:
 		if m.Home.CrawlMode == CrawlMonitor {
-			return m, crawlMonitorWithOptionsCmd(m.Client, m.Database, m.Home)
+			m.Home.StartPage = 1
+			m.Home.PagesPerRound = m.Home.MonitorPages
+			m.Home.LoopEnabled = true
+			m.Home.PageDelaySeconds = 0
+			m.Home.LoopDelaySeconds = 0
+			return m.startCrawlerRun()
 		}
 		if m.Home.CrawlMode == CrawlFetchImages {
 			return m, crawlFetchImagesCmd(m.Client, m.Database, m.Home.ConvertWebp)
@@ -483,9 +493,15 @@ func (m Model) handleHomeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		if m.Home.CrawlMode == CrawlFetchThumbnails {
 			return m, crawlFetchThumbnailsCmd(m.Client, m.Home.ThumbnailStartID, m.Home.ThumbnailEndID, m.Home.ConvertWebp)
 		}
-		return m, crawlPageWithOptionsCmd(m.Client, m.Database, 1, m.Home)
+		m.Home.StartPage = 1
+		m.Home.PagesPerRound = 0
+		m.Home.LoopEnabled = false
+		m.Home.PageDelaySeconds = 0
+		m.Home.LoopDelaySeconds = 60
+		return m.startCrawlerRun()
 	case HomeActionStopCrawler:
 		log.Printf("[Crawler] 爬虫已手动停止")
+		m.Home.CrawlerRun.Active = false
 	}
 	return m, nil
 }
@@ -1240,9 +1256,11 @@ func crawlPageWithOptionsCmd(c *client.Client, database *db.Database, page int, 
 			}
 		}
 		return CrawlMsg{
-			Page:     page,
-			Duration: duration,
-			Summary:  fmt.Sprintf("第%d页：帖子 %d，评论 %d", page, result.PostCount, result.CommentCount),
+			Page:         page,
+			Duration:     duration,
+			Summary:      fmt.Sprintf("第%d页：帖子 %d，评论 %d", page, result.PostCount, result.CommentCount),
+			PostCount:    result.PostCount,
+			CommentCount: result.CommentCount,
 		}
 	}
 }
@@ -1273,10 +1291,66 @@ func crawlMonitorWithOptionsCmd(c *client.Client, database *db.Database, options
 			}
 		}
 		return CrawlMsg{
-			Page:     options.MonitorPages,
-			Duration: time.Since(startTime),
-			Summary:  fmt.Sprintf("监控前%d页：帖子 %d，评论 %d", options.MonitorPages, totalPosts, totalComments),
+			Page:         options.MonitorPages,
+			Duration:     time.Since(startTime),
+			Summary:      fmt.Sprintf("监控前%d页：帖子 %d，评论 %d", options.MonitorPages, totalPosts, totalComments),
+			PostCount:    totalPosts,
+			CommentCount: totalComments,
 		}
+	}
+}
+
+func (m Model) startCrawlerRun() (Model, tea.Cmd) {
+	m.Home.CrawlerRun = CrawlerRunState{
+		Active:        true,
+		StartPage:     m.Home.StartPage,
+		PagesPerRound: m.Home.PagesPerRound,
+		Loop:          m.Home.LoopEnabled,
+		LoopDelay:     m.Home.LoopDelaySeconds,
+		PageDelay:     m.Home.PageDelaySeconds,
+	}
+	return m, crawlPageAfterDelayCmd(m.Client, m.Database, m.Home.StartPage, m.Home, 0)
+}
+
+func (m Model) advanceCrawlerRun(msg CrawlMsg) (Model, tea.Cmd) {
+	if !m.Home.CrawlerRun.Active {
+		m.Home.CrawlerState = CrawlerStopped
+		return m, nil
+	}
+
+	m.Home.CrawlerRun.PagesCrawled++
+	m.Home.CrawlerRun.RoundPosts += msg.PostCount
+	m.Home.CrawlerRun.RoundComments += msg.CommentCount
+
+	if m.Home.CrawlerRun.PagesPerRound > 0 && m.Home.CrawlerRun.PagesCrawled >= m.Home.CrawlerRun.PagesPerRound {
+		m.Home.LastCrawlSummary = fmt.Sprintf(
+			"第%d轮完成：%d页，帖子 %d，评论 %d",
+			m.Home.CrawlerRun.Round+1,
+			m.Home.CrawlerRun.PagesCrawled,
+			m.Home.CrawlerRun.RoundPosts,
+			m.Home.CrawlerRun.RoundComments,
+		)
+		if !m.Home.CrawlerRun.Loop {
+			m.Home.CrawlerRun.Active = false
+			m.Home.CrawlerState = CrawlerStopped
+			return m, nil
+		}
+		m.Home.CrawlerRun.Round++
+		m.Home.CrawlerRun.PagesCrawled = 0
+		m.Home.CrawlerRun.RoundPosts = 0
+		m.Home.CrawlerRun.RoundComments = 0
+		return m, crawlPageAfterDelayCmd(m.Client, m.Database, m.Home.CrawlerRun.StartPage, m.Home, m.Home.CrawlerRun.LoopDelay)
+	}
+
+	return m, crawlPageAfterDelayCmd(m.Client, m.Database, msg.Page+1, m.Home, m.Home.CrawlerRun.PageDelay)
+}
+
+func crawlPageAfterDelayCmd(c *client.Client, database *db.Database, page int, options HomePageModel, delaySeconds int) tea.Cmd {
+	return func() tea.Msg {
+		if delaySeconds > 0 {
+			time.Sleep(time.Duration(delaySeconds) * time.Second)
+		}
+		return crawlPageWithOptionsCmd(c, database, page, options)()
 	}
 }
 
