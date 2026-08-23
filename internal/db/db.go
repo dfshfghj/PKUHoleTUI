@@ -66,10 +66,11 @@ func applyPostSearch(query *gorm.DB, raw string) *gorm.DB {
 }
 
 type Database struct {
-	db         *gorm.DB
-	dbType     string
-	ftsEnabled bool
-	counts     *ttlCountCache
+	db              *gorm.DB
+	dbType          string
+	ftsEnabled      bool
+	ftsNeedsRebuild bool
+	counts          *ttlCountCache
 }
 
 func NewDatabase(cfg *config.Config) (*Database, error) {

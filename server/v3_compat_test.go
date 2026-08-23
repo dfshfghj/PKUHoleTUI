@@ -183,6 +183,41 @@ func TestV3CommentListPagination(t *testing.T) {
 	}
 }
 
+func TestV3KeywordWithKindFilter(t *testing.T) {
+	database, r, cleanup := setupTestEnv(t)
+	defer cleanup()
+	seedV3Posts(t, database)
+
+	err := database.SaveCrawlResult([]models.Post{
+		{Pid: 1003, Text: "保研悬赏求助帖", Type: "text", Timestamp: 3000, Kind: 1},
+		{Pid: 1004, Text: "保研经验普通帖", Type: "text", Timestamp: 4000, Kind: 0},
+	}, nil)
+	if err != nil {
+		t.Fatalf("seed kind posts: %v", err)
+	}
+
+	envelope := getJSON(t, r, "/chapi/api/v3/hole/list_comments?page=1&limit=10&keyword=%E4%BF%9D%E7%A0%94&kind=1")
+	list := envelope["data"].(map[string]interface{})["list"].([]interface{})
+	if len(list) != 1 || list[0].(map[string]interface{})["pid"].(float64) != 1003 {
+		t.Fatalf("keyword+kind=1 results = %v, want [1003]", pidsOf(list))
+	}
+
+	envelope = getJSON(t, r, "/chapi/api/v3/hole/list_comments?page=1&limit=10&keyword=%E4%BF%9D%E7%A0%94&kind=0")
+	list = envelope["data"].(map[string]interface{})["list"].([]interface{})
+	got := pidsOf(list)
+	if len(got) < 1 || len(got) > 2 {
+		t.Fatalf("keyword+kind=0 results = %v", got)
+	}
+}
+
+func pidsOf(list []interface{}) []float64 {
+	out := make([]float64, 0, len(list))
+	for _, item := range list {
+		out = append(out, item.(map[string]interface{})["pid"].(float64))
+	}
+	return out
+}
+
 func TestV3StatelessDefaults(t *testing.T) {
 	_, r, cleanup := setupTestEnv(t)
 	defer cleanup()

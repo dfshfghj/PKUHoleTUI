@@ -18,19 +18,23 @@ func (d *Database) GetPostsV3Page(page, limit int, keyword string, kind, label *
 
 	var posts []models.Post
 	var err error
-	if keyword != "" && kind == nil && label == nil {
+	if keyword != "" {
 		if q, ok := d.buildFTSQuery(keyword); ok {
-			matchCond := "posts_fts MATCH ?"
-			args := []interface{}{q.match}
+			matchExpr := fmt.Sprintf("text_search : (%s)", q.match)
 			if q.pid != nil {
-				matchCond += " AND rowid = ?"
-				args = append(args, *q.pid)
+				matchExpr += fmt.Sprintf(" AND rowid = %d", q.pid)
+			}
+			if kind != nil {
+				matchExpr += fmt.Sprintf(" AND kind : \"%d\"", *kind)
+			}
+			if label != nil {
+				matchExpr += fmt.Sprintf(" AND label : \"%d\"", *label)
 			}
 			rowsSQL := fmt.Sprintf(
-				"SELECT %s FROM posts p WHERE p.pid IN (SELECT rowid FROM %s WHERE %s ORDER BY rowid DESC LIMIT ? OFFSET ?) ORDER BY p.pid DESC",
-				qualifiedPostColumns("p"), ftsTableName, matchCond,
+				"SELECT %s FROM posts p WHERE p.pid IN (SELECT rowid FROM %s WHERE posts_fts MATCH ? ORDER BY rowid DESC LIMIT ? OFFSET ?) ORDER BY p.pid DESC",
+				qualifiedPostColumns("p"), ftsTableName,
 			)
-			args = append(args, limit, (page-1)*limit)
+			args := []interface{}{matchExpr, limit, (page - 1) * limit}
 			err = d.db.Raw(rowsSQL, args...).Scan(&posts).Error
 			if err != nil {
 				return nil, 0, err

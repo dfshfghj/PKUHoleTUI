@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -103,8 +104,11 @@ func (d *Database) initFTS() error {
 	if d.dbType != "sqlite3" {
 		return nil
 	}
+	if err := d.migrateFTSSchema(); err != nil {
+		return fmt.Errorf("migrate fts schema: %w", err)
+	}
 	create := fmt.Sprintf(
-		"CREATE VIRTUAL TABLE IF NOT EXISTS %s USING fts5(text_search, content='posts', content_rowid='pid', tokenize='unicode61')",
+		"CREATE VIRTUAL TABLE IF NOT EXISTS %s USING fts5(text_search, kind, label, content='posts', content_rowid='pid', tokenize='unicode61')",
 		ftsTableName,
 	)
 	if err := d.db.Exec(create).Error; err != nil {
@@ -113,23 +117,23 @@ func (d *Database) initFTS() error {
 	}
 	triggers := []string{
 		fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS posts_fts_ai AFTER INSERT ON posts BEGIN
-	INSERT INTO %s(rowid, text_search) VALUES (new.pid, COALESCE(new.text_search, ''));
+	INSERT INTO %s(rowid, text_search, kind, label) VALUES (new.pid, COALESCE(new.text_search, ''), new.kind, new.label);
 END`, ftsTableName),
 		fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS posts_fts_ad AFTER DELETE ON posts
 WHEN old.text_search IS NOT NULL
 BEGIN
-	INSERT INTO %s(%s, rowid, text_search) VALUES ('delete', old.pid, old.text_search);
+	INSERT INTO %s(%s, rowid, text_search, kind, label) VALUES ('delete', old.pid, old.text_search, old.kind, old.label);
 END`, ftsTableName, ftsTableName),
 		fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS posts_fts_au_del AFTER UPDATE OF text_search ON posts
 WHEN new.text_search IS NOT old.text_search AND old.text_search IS NOT NULL
 BEGIN
-	INSERT INTO %s(%s, rowid, text_search) VALUES ('delete', old.pid, old.text_search);
-	INSERT INTO %s(rowid, text_search) VALUES (new.pid, COALESCE(new.text_search, ''));
+	INSERT INTO %s(%s, rowid, text_search, kind, label) VALUES ('delete', old.pid, old.text_search, old.kind, old.label);
+	INSERT INTO %s(rowid, text_search, kind, label) VALUES (new.pid, COALESCE(new.text_search, ''), new.kind, new.label);
 END`, ftsTableName, ftsTableName, ftsTableName),
 		fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS posts_fts_au_ins AFTER UPDATE OF text_search ON posts
 WHEN new.text_search IS NOT old.text_search AND old.text_search IS NULL
 BEGIN
-	INSERT INTO %s(rowid, text_search) VALUES (new.pid, COALESCE(new.text_search, ''));
+	INSERT INTO %s(rowid, text_search, kind, label) VALUES (new.pid, COALESCE(new.text_search, ''), new.kind, new.label);
 END`, ftsTableName),
 	}
 	for _, stmt := range triggers {
@@ -138,7 +142,37 @@ END`, ftsTableName),
 		}
 	}
 	d.ftsEnabled = true
+	if d.ftsNeedsRebuild {
+		log.Printf("[FTS] 检测到索引 schema 变更，同步重建索引中，请耐心等待...")
+		start := time.Now()
+		if err := d.RebuildFTSIndex(); err != nil {
+			return fmt.Errorf("rebuild fts after schema migration: %w", err)
+		}
+		d.ftsNeedsRebuild = false
+		log.Printf("[FTS] 索引重建完成，耗时 %s", time.Since(start).Round(time.Second))
+	}
 	log.Printf("[FTS] FTS5 全文索引已启用")
+	return nil
+}
+
+func (d *Database) migrateFTSSchema() error {
+	var sql string
+	err := d.db.Raw("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", ftsTableName).Scan(&sql).Error
+	if err != nil || strings.TrimSpace(sql) == "" {
+		return nil
+	}
+	if strings.Contains(sql, "kind") && strings.Contains(sql, "label") {
+		return nil
+	}
+	for _, trg := range []string{"posts_fts_ai", "posts_fts_ad", "posts_fts_au_del", "posts_fts_au_ins"} {
+		if err := d.db.Exec(fmt.Sprintf("DROP TRIGGER IF EXISTS %s", trg)).Error; err != nil {
+			return err
+		}
+	}
+	if err := d.db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", ftsTableName)).Error; err != nil {
+		return err
+	}
+	d.ftsNeedsRebuild = true
 	return nil
 }
 
