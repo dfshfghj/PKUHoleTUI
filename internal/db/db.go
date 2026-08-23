@@ -66,8 +66,9 @@ func applyPostSearch(query *gorm.DB, raw string) *gorm.DB {
 }
 
 type Database struct {
-	db     *gorm.DB
-	dbType string
+	db         *gorm.DB
+	dbType     string
+	ftsEnabled bool
 }
 
 func NewDatabase(cfg *config.Config) (*Database, error) {
@@ -137,7 +138,10 @@ func configureSQLite(db *gorm.DB) error {
 }
 
 func (d *Database) initTables() error {
-	return d.db.AutoMigrate(&models.Post{}, &models.Comment{}, &models.ExclusiveIdInfo{})
+	if err := d.db.AutoMigrate(&models.Post{}, &models.Comment{}, &models.ExclusiveIdInfo{}); err != nil {
+		return err
+	}
+	return d.initFTS()
 }
 
 func (d *Database) UpsertPosts(posts []models.Post) error {
@@ -206,6 +210,9 @@ func sanitizePosts(posts []models.Post) {
 func upsertPosts(tx *gorm.DB, posts []models.Post) error {
 	if len(posts) == 0 {
 		return nil
+	}
+	for i := range posts {
+		posts[i].TextSearch = TokenizeForSearch(posts[i].Text)
 	}
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "pid"}},
@@ -347,19 +354,34 @@ func (d *Database) GetPostsCursor(cursor int, limit int, sortAsc bool) ([]models
 func (d *Database) SearchPostsCursor(keyword string, cursor int, limit int, sortAsc bool) ([]models.Post, error) {
 	var posts []models.Post
 	order := "DESC"
-	query := d.db.Model(&models.Post{}).
-		Select("pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids")
+	cmp := "<"
 	if sortAsc {
 		order = "ASC"
+		cmp = ">"
 	}
+	search := parsePostSearchQuery(keyword)
+	if mq, ok := d.ftsMatchExpr(search); ok {
+		inner := fmt.Sprintf("SELECT rowid FROM %s WHERE posts_fts MATCH ?", ftsTableName)
+		args := []interface{}{mq}
+		if cursor != 0 {
+			inner += fmt.Sprintf(" AND rowid %s ?", cmp)
+			args = append(args, cursor)
+		}
+		inner += fmt.Sprintf(" ORDER BY rowid %s LIMIT ?", order)
+		args = append(args, limit)
+		sql := fmt.Sprintf(
+			"SELECT %s FROM posts p WHERE p.pid IN (%s) ORDER BY p.pid %s",
+			qualifiedPostColumns("p"), inner, order,
+		)
+		err := d.db.Raw(sql, args...).Scan(&posts).Error
+		return posts, err
+	}
+	query := d.db.Model(&models.Post{}).
+		Select(postListColumns)
 	query = applyPostSearch(query, keyword)
 
 	if cursor != 0 {
-		if sortAsc {
-			query = query.Where("pid > ?", cursor)
-		} else {
-			query = query.Where("pid < ?", cursor)
-		}
+		query = query.Where(fmt.Sprintf("pid %s ?", cmp), cursor)
 	}
 	err := query.Order("pid " + order).Limit(limit).Find(&posts).Error
 	return posts, err
@@ -402,6 +424,20 @@ func (d *Database) GetPostsOrderBy(field string, cursor int, limit int) ([]model
 func (d *Database) SearchPostsOrderBy(keyword string, field string, cursor int, limit int) ([]models.Post, error) {
 	var posts []models.Post
 	orderCol := validateOrderField(field)
+
+	search := parsePostSearchQuery(keyword)
+	if mq, ok := d.ftsMatchExpr(search); ok {
+		sql := fmt.Sprintf("SELECT %s FROM %s f JOIN posts p ON p.pid = f.rowid WHERE posts_fts MATCH ?", qualifiedPostColumns("p"), ftsTableName)
+		args := []interface{}{mq}
+		if cursor != 0 {
+			sql += " AND p." + orderCol + " < ?"
+			args = append(args, cursor)
+		}
+		sql += " ORDER BY p." + orderCol + " DESC LIMIT ?"
+		args = append(args, limit)
+		err := d.db.Raw(sql, args...).Scan(&posts).Error
+		return posts, err
+	}
 
 	query := applyPostSearch(d.db.Model(&models.Post{}), keyword).Order(orderCol + " DESC")
 	if cursor != 0 {

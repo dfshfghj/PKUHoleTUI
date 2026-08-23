@@ -49,6 +49,7 @@ func BoolFromInt(i int) BoolInt {
 type Post struct {
 	Pid             int32     `json:"pid" gorm:"primaryKey;column:pid"`
 	Text            string    `json:"text" gorm:"column:text"`
+	TextSearch      string    `json:"-" gorm:"column:text_search"`
 	Type            string    `json:"type" gorm:"column:type"`
 	Timestamp       int32     `json:"timestamp" gorm:"column:timestamp"`
 	Hidden          BoolInt   `json:"hidden" gorm:"column:hidden"`
