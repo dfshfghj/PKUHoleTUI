@@ -9,7 +9,8 @@
 
 - **数据采集**: 支持一次性抓取、无限循环、断点续爬、持续监控四种模式
 - **TUI 交互界面**: 基于 Terminal UI 的可视化操作，支持帖子浏览、搜索、标签筛选、评论查看，以及在线模式下的点赞/关注/发帖/评论
-- **REST API 服务**: 提供标准化的数据查询接口（Gin 框架）
+- **全文搜索**: 在 SQLite 中使用 FTS5，支持布尔查询语法（`AND` / `OR` / `-排除`）; PostgreSQL 暂时还没做；
+- **REST API 服务**: 提供标准化查询接口，也带了一套与原站 `/chapi/api/v3` 协议兼容的只读镜像路由，相比原站最多加速约 3000x，参见 [benchmark](/doc/benchmark.md)；
 - **图片下载**: 支持从帖子和评论中下载缺失图片
 - **数据存储**: 支持 SQLite 和 PostgreSQL 双数据库
 - **认证管理**: 支持 Cookie / OAuth / SSO / TOTP 多方式登录
@@ -22,6 +23,7 @@
 │   ├── main.go          # 程序入口
 │   ├── root.go          # 根命令 & TUI / Daemon 逻辑
 │   ├── crawler.go       # 爬虫子命令 & 图片下载子命令
+│   ├── fts.go           # 全文索引
 │   ├── server.go        # API 服务器子命令 (build tag: withserver)
 │   └── server_stub.go   # server 空壳 (build tag: !withserver)
 ├── internal/
@@ -37,9 +39,10 @@
 │       ├── styles.go    # 样式定义
 │       └── pages/       # 各页面组件
 ├── server/
-│   ├── router.go        # Gin 路由注册
+│   ├── router.go        # Gin 路由注册（加了 /chapi/api/v3 兼容镜像）
 │   ├── handles/         # API 处理器
 │   └── utils/           # 工具函数
+├── doc/                 # 文档
 ├── web/                 # 前端静态资源
 └── data/
     ├── config.json      # 账号与数据库配置文件（启动时自动创建）
@@ -53,19 +56,19 @@
 
 ```bash
 go mod tidy
-go build -tags withserver -o treehole ./cmd/
+go build -tags "sqlite_fts5 withserver" -o treehole ./cmd/
 ```
 
 ### 精简版本（仅 TUI + 数据采集，不包含 API 服务器）
 
 ```bash
 go mod tidy
-go build -o treehole ./cmd/
+go build -tags sqlite_fts5 -o treehole ./cmd/
 ```
 
 说明：
+- **`sqlite_fts5` 是必需的构建标签**：启用 SQLite FTS5 全文搜索，但是数据库会膨胀。不带该 tag 也能运行，但全文搜索会自动降级为 LIKE 扫描；PostgreSQL 后端同样走 LIKE 路径
 - 使用 `-tags withserver` 编译时会打包 Gin 框架和所有 API 路由
-- 默认编译（无 tag）会跳过 server 子命令，减少二进制体积和依赖
 
 ## 配置
 
@@ -78,7 +81,8 @@ go build -o treehole ./cmd/
   "secret_key": "TOTP密钥（可选；遇到令牌验证时自动填写）",
   "database": {
     "type": "sqlite3",
-    "db_file": "./treehole.db"
+    "db_file": "./data/treehole.db",
+    "max_conns": 8
   }
 }
 ```
@@ -93,8 +97,34 @@ go build -o treehole ./cmd/
 
 | 类型 | 配置项 |
 |------|--------|
-| SQLite | `"type": "sqlite3"`, `"db_file": "./treehole.db"` |
+| SQLite | `"type": "sqlite3"`, `"db_file"`, `"max_conns"` |
 | PostgreSQL | `"type": "postgres"`, `"host"`, `"port"`, `"user"`, `"password"`, `"name"` |
+
+## 全文搜索
+
+SQLite 后端 + `-tags sqlite_fts5` 构建时，帖子正文会建立 FTS5 倒排索引，搜索走索引而非 LIKE 扫描：
+
+- 中文单字分词，英文正常按单词分词；（为什么不给中文也做分词？存在比较多的网络用语，分词效果不好；而且树洞也不做分词）
+- **布尔语法**（TUI 搜索框与 API 的 `keyword` 参数通用）：
+
+| 语法 | 示例 | 含义 |
+|------|------|------|
+| 隐式 AND | `保研 清华` | 同时包含 |
+| `OR` / `\|` | `保研 OR 考研`、`食堂\|开门` | 任一包含 |
+| 排除 | `经验 -清华` | 含"经验"且不含"清华" |
+| 短语 | `"二食堂 开门"` | 保序相邻匹配 |
+| 分组 | `(保研 OR 考研) 资料 -广告` | 括号优先级 |
+| 指定帖 | `#8141313 评论` | 限定 pid |
+
+- **自动维护**：爬虫增量数据经触发器实时入索引；存量数据执行一次回填即可；索引 schema 变更会在启动时自动检测并同步重建
+
+索引管理子命令：
+
+```bash
+go run -tags sqlite_fts5 ./cmd fts --status    # 查看索引状态与体积
+go run -tags sqlite_fts5 ./cmd fts --backfill  # 为存量帖子生成分词列并增量入索引（幂等）
+go run -tags sqlite_fts5 ./cmd fts --reindex   # 从分词列全量重建倒排索引
+```
 
 ## 使用方式
 
@@ -150,6 +180,8 @@ Home 页（爬虫控制，仅在停止状态下可用）：
 | `w` | 切换是否转换为 WebP 格式 |
 
 Posts 页按 `Esc` 可清除当前搜索词和标签筛选，恢复全部帖子列表（帮助面板中未标注此行为）。
+
+搜索框支持布尔查询（离线模式）：`保研 OR 考研`、`经验 -清华`、`"二食堂 开门"`、`#8141313 关键词`；在线模式走原站搜索接口，语法以原站为准。
 
 配置编辑器支持 Vim 风格操作（`i`/`a`/`o`/`O` 进入编辑模式，`x` 删除字符，`0`/`$`/`g`/`G` 跳转，`Ctrl+S` 保存）。
 
@@ -210,15 +242,29 @@ Posts 页按 `Esc` 可清除当前搜索词和标签筛选，恢复全部帖子�
 ### REST API 服务 (`server` 子命令)
 
 ```bash
-./treehole server --port 8081 --host 0.0.0.0
+go run -tags "sqlite_fts5 withserver" ./cmd server --port 8081 --host 0.0.0.0
 ```
 
-启动后访问：
-- 帖子列表: `GET http://localhost:8081/pku_hole?begin=0&limit=25`
+自有接口：
+
+- 全部路由: `GET http://localhost:8081/help`
+- 帖子列表/搜索: `GET http://localhost:8081/posts?begin=0&limit=25&keyword=&order_by=`
 - 帖子详情: `GET http://localhost:8081/post/:pid`
-- 帖子评论: `GET http://localhost:8081/post/:pid/comments?begin=0&limit=25`
-- 搜索: `GET http://localhost:8081/search?q=keyword&begin=0&limit=25`
+- 单条评论: `GET http://localhost:8081/comment?cid=123`
+- 帖子评论: `GET http://localhost:8081/comments/:pid?begin=0&limit=25&sort=0`
+- 本地图片: `GET http://localhost:8081/media/image?id=123` 或 `?pid=456`
 - 健康检查: `GET http://localhost:8081/health`
+
+原站兼容只读镜像（协议与 `treehole.pku.edu.cn/chapi/api/v3` 一致，可直接对接原站前端）：
+
+- 树洞列表+首页评论: `GET /chapi/api/v3/hole/list_comments?page=1&limit=10&comment_limit=10&keyword=&kind=&label=`
+- 单洞+评论: `GET /chapi/api/v3/hole/one?pid=123`
+- 单洞信息: `GET /chapi/api/v3/hole/get?pid=123`
+- 评论分页: `GET /chapi/api/v3/comment/list?pid=123&page=1&limit=10&sort=0`
+- 静态默认值: `/chapi/api/v3/message/un_read`、`/chapi/api/v3/message/index`、`/chapi/api/v3/tags/tree`
+- 图片: `/chapi/api/v3/media/getThumbnail`、`/chapi/api/v3/media/getImageBinary`
+
+仅实现只读且与用户状态无关的部分；写操作接口未注册。响应信封为 `{code:20000, data, message:"success", success:true, timestamp}`。延迟对比见 [doc/benchmark.md](doc/benchmark.md)。
 
 ### 后台运行
 
