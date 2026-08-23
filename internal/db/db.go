@@ -69,6 +69,7 @@ type Database struct {
 	db         *gorm.DB
 	dbType     string
 	ftsEnabled bool
+	counts     *ttlCountCache
 }
 
 func NewDatabase(cfg *config.Config) (*Database, error) {
@@ -101,8 +102,12 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 	}
 
 	if cfg.Database.Type == "sqlite3" {
-		sqlDB.SetMaxOpenConns(1)
-		sqlDB.SetMaxIdleConns(1)
+		maxConns := cfg.Database.MaxConns
+		if maxConns < 1 {
+			maxConns = 1
+		}
+		sqlDB.SetMaxOpenConns(maxConns)
+		sqlDB.SetMaxIdleConns(maxConns)
 		if err := configureSQLite(db); err != nil {
 			_ = sqlDB.Close()
 			return nil, err
@@ -114,7 +119,7 @@ func NewDatabase(cfg *config.Config) (*Database, error) {
 		sqlDB.SetConnMaxIdleTime(10 * time.Minute)
 	}
 
-	database := &Database{db: db, dbType: cfg.Database.Type}
+	database := &Database{db: db, dbType: cfg.Database.Type, counts: newTTLCountCache()}
 	err = database.initTables()
 	if err != nil {
 		return nil, err
@@ -359,10 +364,13 @@ func (d *Database) SearchPostsCursor(keyword string, cursor int, limit int, sort
 		order = "ASC"
 		cmp = ">"
 	}
-	search := parsePostSearchQuery(keyword)
-	if mq, ok := d.ftsMatchExpr(search); ok {
+	if q, ok := d.buildFTSQuery(keyword); ok {
 		inner := fmt.Sprintf("SELECT rowid FROM %s WHERE posts_fts MATCH ?", ftsTableName)
-		args := []interface{}{mq}
+		args := []interface{}{q.match}
+		if q.pid != nil {
+			inner += " AND rowid = ?"
+			args = append(args, *q.pid)
+		}
 		if cursor != 0 {
 			inner += fmt.Sprintf(" AND rowid %s ?", cmp)
 			args = append(args, cursor)
@@ -425,10 +433,16 @@ func (d *Database) SearchPostsOrderBy(keyword string, field string, cursor int, 
 	var posts []models.Post
 	orderCol := validateOrderField(field)
 
-	search := parsePostSearchQuery(keyword)
-	if mq, ok := d.ftsMatchExpr(search); ok {
-		sql := fmt.Sprintf("SELECT %s FROM %s f JOIN posts p ON p.pid = f.rowid WHERE posts_fts MATCH ?", qualifiedPostColumns("p"), ftsTableName)
-		args := []interface{}{mq}
+	if q, ok := d.buildFTSQuery(keyword); ok {
+		sql := fmt.Sprintf(
+			"SELECT %s FROM %s f JOIN posts p ON p.pid = f.rowid WHERE posts_fts MATCH ?",
+			qualifiedPostColumns("p"), ftsTableName,
+		)
+		args := []interface{}{q.match}
+		if q.pid != nil {
+			sql += " AND p.pid = ?"
+			args = append(args, *q.pid)
+		}
 		if cursor != 0 {
 			sql += " AND p." + orderCol + " < ?"
 			args = append(args, cursor)

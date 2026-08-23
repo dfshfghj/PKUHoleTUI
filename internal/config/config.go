@@ -15,12 +15,12 @@ var (
 )
 
 const (
-	dataDirName            = "data"
-	configFileName         = "config.json"
-	cookiesFileName        = "cookies.json"
-	logFileName            = "crawler.log"
-	tuiLogFileName         = "tui.log"
-	searchHistoryFileName  = ".search_history"
+	dataDirName           = "data"
+	configFileName        = "config.json"
+	cookiesFileName       = "cookies.json"
+	logFileName           = "crawler.log"
+	tuiLogFileName        = "tui.log"
+	searchHistoryFileName = ".search_history"
 )
 
 type runtimePaths struct {
@@ -34,15 +34,16 @@ type runtimePaths struct {
 }
 
 type DatabaseConfig struct {
-	Type     string `json:"type"`     // "sqlite3" or "postgres"
-	Host     string `json:"host"`     // PostgreSQL host
-	Port     int    `json:"port"`     // PostgreSQL port
-	User     string `json:"user"`     // PostgreSQL user
-	Password string `json:"password"` // PostgreSQL password
-	Name     string `json:"name"`     // PostgreSQL database name
-	DBFile   string `json:"db_file"`  // SQLite file path
-	SSLMode  string `json:"ssl_mode"` // PostgreSQL SSL mode
-	DSN      string `json:"dsn"`      // Custom DSN (optional)
+	Type     string `json:"type"`      // "sqlite3" or "postgres"
+	Host     string `json:"host"`      // PostgreSQL host
+	Port     int    `json:"port"`      // PostgreSQL port
+	User     string `json:"user"`      // PostgreSQL user
+	Password string `json:"password"`  // PostgreSQL password
+	Name     string `json:"name"`      // PostgreSQL database name
+	DBFile   string `json:"db_file"`   // SQLite file path
+	SSLMode  string `json:"ssl_mode"`  // PostgreSQL SSL mode
+	DSN      string `json:"dsn"`       // Custom DSN (optional)
+	MaxConns int    `json:"max_conns"` // SQLite 连接池上限，默认 1（>1 时依赖 WAL 并发读）
 }
 
 type CorsConfig struct {

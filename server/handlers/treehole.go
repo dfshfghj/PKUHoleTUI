@@ -27,6 +27,12 @@ func Help(c *gin.Context) {
 		{"method": "GET", "route": "/comment?cid=123", "description": "Fetch a single comment by comment ID."},
 		{"method": "GET", "route": "/comments/:pid?begin=0&limit=25&sort=0", "description": "List comments for a post with optional cursor pagination and sort order."},
 		{"method": "GET", "route": "/media/image?id=123 or /media/image?pid=456", "description": "Serve a local image by media ID or post ID."},
+		{"method": "GET", "route": "/chapi/api/v3/hole/list_comments?page=1&limit=10&comment_limit=10&keyword=&kind=&label=", "description": "Origin-compatible read-only mirror: list holes with embedded first-page comments."},
+		{"method": "GET", "route": "/chapi/api/v3/hole/one?pid=123", "description": "Origin-compatible read-only mirror: single hole with comments."},
+		{"method": "GET", "route": "/chapi/api/v3/hole/get?pid=123", "description": "Origin-compatible read-only mirror: single hole info."},
+		{"method": "GET", "route": "/chapi/api/v3/comment/list?pid=123&page=1&limit=10&sort=0", "description": "Origin-compatible read-only mirror: paginated comments for a hole."},
+		{"method": "GET", "route": "/chapi/api/v3/message/un_read | /chapi/api/v3/message/index | /chapi/api/v3/tags/tree", "description": "Origin-compatible read-only mirror: static defaults (no user state)."},
+		{"method": "GET", "route": "/chapi/api/v3/media/getThumbnail | /chapi/api/v3/media/getImageBinary?id= or pid=", "description": "Origin-compatible read-only mirror: serve local images."},
 	})
 }
 

@@ -81,29 +81,21 @@ func searchTokens(text string) []string {
 	return strings.Fields(TokenizeForSearch(text))
 }
 
-func buildFTSMatchQuery(keywords []string) (string, bool) {
-	var phrases []string
-	for _, kw := range keywords {
-		tokens := searchTokens(kw)
-		if len(tokens) == 0 {
-			continue
-		}
-		for i, t := range tokens {
-			tokens[i] = strings.ReplaceAll(t, `"`, `""`)
-		}
-		phrases = append(phrases, `"`+strings.Join(tokens, " ")+`"`)
-	}
-	if len(phrases) == 0 {
-		return "", false
-	}
-	return strings.Join(phrases, " AND "), true
+type ftsQuery struct {
+	match string
+	pid   *int32
 }
 
-func (d *Database) ftsMatchExpr(search postSearchQuery) (string, bool) {
-	if !d.ftsEnabled || len(search.keywords) == 0 {
-		return "", false
+func (d *Database) buildFTSQuery(raw string) (ftsQuery, bool) {
+	if !d.ftsEnabled {
+		return ftsQuery{}, false
 	}
-	return buildFTSMatchQuery(search.keywords)
+	pid, rest := splitPIDToken(raw)
+	if strings.TrimSpace(rest) == "" {
+		return ftsQuery{}, false
+	}
+	mq, ok := buildBooleanFTSQuery(rest)
+	return ftsQuery{match: mq, pid: pid}, ok
 }
 
 func (d *Database) initFTS() error {

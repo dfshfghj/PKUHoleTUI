@@ -31,20 +31,6 @@ func TestTokenizeForSearch(t *testing.T) {
 	}
 }
 
-func TestBuildFTSMatchQuery(t *testing.T) {
-	mq, ok := buildFTSMatchQuery([]string{"二食堂"})
-	if !ok || mq != `"二 食 堂"` {
-		t.Fatalf("match = %q ok=%v, want quoted phrase", mq, ok)
-	}
-	mq, _ = buildFTSMatchQuery([]string{"保研", "gpa"})
-	if !strings.Contains(mq, `" AND "`) {
-		t.Fatalf("multi keyword should be ANDed: %q", mq)
-	}
-	if _, ok := buildFTSMatchQuery([]string{"!!!"}); ok {
-		t.Fatal("untokenizable keywords should yield ok=false")
-	}
-}
-
 func requireFTS(t *testing.T, d *Database) {
 	t.Helper()
 	if !d.FTSEnabled() {
