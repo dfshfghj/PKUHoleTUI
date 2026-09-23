@@ -16,7 +16,7 @@ const ftsTableName = "posts_fts"
 
 const ftsBackfillBatch = 2000
 
-const postListColumns = "pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids"
+const postListColumns = "pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids, praise_num"
 
 func qualifiedPostColumns(prefix string) string {
 	parts := strings.Split(postListColumns, ", ")

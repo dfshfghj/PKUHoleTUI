@@ -22,7 +22,7 @@ func Help(c *gin.Context) {
 	utils.RespondSuccess(c, []gin.H{
 		{"method": "GET", "route": "/health", "description": "Check whether the API server is running."},
 		{"method": "GET", "route": "/help", "description": "List available routes with brief English descriptions."},
-		{"method": "GET", "route": "/posts?begin=0&limit=25&keyword=&order_by=", "description": "List posts with optional cursor pagination, keyword search, and ordering."},
+		{"method": "GET", "route": "/posts?begin=0&limit=25&keyword=&order_by=&begin_time=&end_time=", "description": "List posts with optional cursor pagination, keyword search, ordering, and unix-second time range filtering (begin_time/end_time, inclusive)."},
 		{"method": "GET", "route": "/post/:pid", "description": "Fetch a single post by post ID."},
 		{"method": "GET", "route": "/comment?cid=123", "description": "Fetch a single comment by comment ID."},
 		{"method": "GET", "route": "/comments/:pid?begin=0&limit=25&sort=0", "description": "List comments for a post with optional cursor pagination and sort order."},
@@ -56,19 +56,19 @@ func GetPost(database *db.Database) gin.HandlerFunc {
 		}
 
 		postData := map[string]interface{}{
-			"id":        p.Pid,
-			"text":      p.Text,
-			"userid":    65535,
-			"username":  username,
-			"timestamp": p.Timestamp,
-			"reply":     p.Reply,
-			"follownum": p.Likenum,
-			"is_follow": 0,
-			"likenum":   p.PraiseNum,
-			"is_like":   0,
-			"type":      p.Type,
-			"tags":      []string{},
-			"media_ids": p.MediaIds,
+			"id":         p.Pid,
+			"text":       p.Text,
+			"userid":     65535,
+			"username":   username,
+			"timestamp":  p.Timestamp,
+			"reply":      p.Reply,
+			"likenum":    p.Likenum,
+			"is_follow":  0,
+			"praise_num": p.PraiseNum,
+			"is_like":    0,
+			"type":       p.Type,
+			"tags":       []string{},
+			"media_ids":  p.MediaIds,
 		}
 
 		utils.RespondSuccess(c, postData)
@@ -110,6 +110,32 @@ func GetPosts(database *db.Database) gin.HandlerFunc {
 
 		cursor, _ := strconv.Atoi(c.DefaultQuery("begin", "0"))
 
+		var timeRange *db.TimeRange
+		beginTimeStr := c.Query("begin_time")
+		endTimeStr := c.Query("end_time")
+		if beginTimeStr != "" || endTimeStr != "" {
+			var beginTS, endTS int64
+			if beginTimeStr != "" {
+				beginTS, err = strconv.ParseInt(beginTimeStr, 10, 64)
+				if err != nil || beginTS < 0 {
+					utils.RespondError(c, 400, "InvalidParam", errors.New("invalid begin_time, expect unix seconds"))
+					return
+				}
+			}
+			if endTimeStr != "" {
+				endTS, err = strconv.ParseInt(endTimeStr, 10, 64)
+				if err != nil || endTS < 0 {
+					utils.RespondError(c, 400, "InvalidParam", errors.New("invalid end_time, expect unix seconds"))
+					return
+				}
+			}
+			if beginTS > 0 && endTS > 0 && beginTS > endTS {
+				utils.RespondError(c, 400, "InvalidParam", errors.New("begin_time is after end_time"))
+				return
+			}
+			timeRange = &db.TimeRange{Begin: beginTS, End: endTS}
+		}
+
 		var posts []models.Post
 		var dbErr error
 
@@ -120,13 +146,13 @@ func GetPosts(database *db.Database) gin.HandlerFunc {
 			post, dbErr = database.GetPostByPid(int32(pid))
 			posts = []models.Post{*post}
 		} else if orderBy != "" && keyword == "" {
-			posts, dbErr = database.GetPostsOrderBy(orderBy, cursor, limit)
+			posts, dbErr = database.GetPostsOrderByRange(orderBy, timeRange, cursor, limit)
 		} else if orderBy != "" && keyword != "" {
-			posts, dbErr = database.SearchPostsOrderBy(keyword, orderBy, cursor, limit)
+			posts, dbErr = database.SearchPostsOrderByRange(keyword, orderBy, timeRange, cursor, limit)
 		} else if keyword != "" {
-			posts, dbErr = database.SearchPostsCursor(keyword, cursor, limit, false)
+			posts, dbErr = database.SearchPostsCursorRange(keyword, timeRange, cursor, limit, false)
 		} else {
-			posts, dbErr = database.GetPostsCursor(cursor, limit, false)
+			posts, dbErr = database.GetPostsCursorRange(timeRange, cursor, limit, false)
 		}
 
 		if dbErr != nil {
@@ -142,19 +168,19 @@ func GetPosts(database *db.Database) gin.HandlerFunc {
 			}
 
 			postData[i] = map[string]interface{}{
-				"id":        p.Pid,
-				"text":      p.Text,
-				"userid":    65535,
-				"username":  username,
-				"timestamp": p.Timestamp,
-				"reply":     p.Reply,
-				"follownum": p.Likenum,
-				"is_follow": 0,
-				"likenum":   p.PraiseNum,
-				"is_like":   0,
-				"type":      p.Type,
-				"tags":      []string{},
-				"media_ids": p.MediaIds,
+				"id":         p.Pid,
+				"text":       p.Text,
+				"userid":     65535,
+				"username":   username,
+				"timestamp":  p.Timestamp,
+				"reply":      p.Reply,
+				"likenum":    p.Likenum,
+				"is_follow":  0,
+				"praise_num": p.PraiseNum,
+				"is_like":    0,
+				"type":       p.Type,
+				"tags":       []string{},
+				"media_ids":  p.MediaIds,
 			}
 		}
 

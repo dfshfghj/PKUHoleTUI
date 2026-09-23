@@ -73,6 +73,62 @@ type Database struct {
 	counts          *ttlCountCache
 }
 
+// TimeRange 表示按 timestamp 过滤的闭区间（Unix 秒）；0 表示该侧不设限
+type TimeRange struct {
+	Begin int64
+	End   int64
+}
+
+func (r *TimeRange) empty() bool {
+	return r == nil || (r.Begin <= 0 && r.End <= 0)
+}
+
+// applyConds 把时间区间条件追加到 SQL 片段与参数中
+func (r *TimeRange) applyConds(conds []string, args []interface{}, col string) ([]string, []interface{}) {
+	if r.empty() {
+		return conds, args
+	}
+	if r.Begin > 0 {
+		conds = append(conds, col+" >= ?")
+		args = append(args, r.Begin)
+	}
+	if r.End > 0 {
+		conds = append(conds, col+" <= ?")
+		args = append(args, r.End)
+	}
+	return conds, args
+}
+
+// applySQL 把时间区间条件以 AND 形式追加到已含 WHERE 的原始 SQL 与参数中
+func (r *TimeRange) applySQL(sql string, args []interface{}, col string) (string, []interface{}) {
+	if r.empty() {
+		return sql, args
+	}
+	if r.Begin > 0 {
+		sql += " AND " + col + " >= ?"
+		args = append(args, r.Begin)
+	}
+	if r.End > 0 {
+		sql += " AND " + col + " <= ?"
+		args = append(args, r.End)
+	}
+	return sql, args
+}
+
+// applyQuery 把时间区间条件追加到 GORM 查询
+func (r *TimeRange) applyQuery(query *gorm.DB) *gorm.DB {
+	if r.empty() {
+		return query
+	}
+	if r.Begin > 0 {
+		query = query.Where("timestamp >= ?", r.Begin)
+	}
+	if r.End > 0 {
+		query = query.Where("timestamp <= ?", r.End)
+	}
+	return query
+}
+
 func NewDatabase(cfg *config.Config) (*Database, error) {
 	dsn, err := cfg.GetDatabaseDSN()
 	if err != nil {
@@ -323,7 +379,7 @@ func (d *Database) GetCommentCount() (int, error) {
 
 func (d *Database) GetPostByPid(pid int32) (*models.Post, error) {
 	var post models.Post
-	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE pid = ?", pid).First(&post).Error
+	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids, praise_num FROM posts WHERE pid = ?", pid).First(&post).Error
 	if err != nil {
 		return nil, err
 	}
@@ -341,6 +397,11 @@ func (d *Database) GetCommentByCid(cid int32) (*models.Comment, error) {
 
 // GetPostsCursor 游标分页获取帖子列表 (DESC)
 func (d *Database) GetPostsCursor(cursor int, limit int, sortAsc bool) ([]models.Post, error) {
+	return d.GetPostsCursorRange(nil, cursor, limit, sortAsc)
+}
+
+// GetPostsCursorRange 同上，可按 timestamp 闭区间过滤
+func (d *Database) GetPostsCursorRange(tr *TimeRange, cursor int, limit int, sortAsc bool) ([]models.Post, error) {
 	var posts []models.Post
 	order := "DESC"
 	comparator := "<"
@@ -349,15 +410,29 @@ func (d *Database) GetPostsCursor(cursor int, limit int, sortAsc bool) ([]models
 		comparator = ">"
 	}
 
+	conds := make([]string, 0, 3)
+	args := make([]interface{}, 0, 3)
 	if cursor != 0 {
-		err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts WHERE pid "+comparator+" ? ORDER BY pid "+order+" LIMIT ?", cursor, limit).Scan(&posts).Error
-		return posts, err
+		conds = append(conds, "pid "+comparator+" ?")
+		args = append(args, cursor)
 	}
-	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids FROM posts ORDER BY pid "+order+" LIMIT ?", limit).Scan(&posts).Error
+	conds, args = tr.applyConds(conds, args, "timestamp")
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + strings.Join(conds, " AND ") + " "
+	}
+	sql := "SELECT " + postListColumns + " FROM posts " + where + "ORDER BY pid " + order + " LIMIT ?"
+	args = append(args, limit)
+	err := d.db.Raw(sql, args...).Scan(&posts).Error
 	return posts, err
 }
 
 func (d *Database) SearchPostsCursor(keyword string, cursor int, limit int, sortAsc bool) ([]models.Post, error) {
+	return d.SearchPostsCursorRange(keyword, nil, cursor, limit, sortAsc)
+}
+
+// SearchPostsCursorRange 关键词搜索 + 游标分页，可按 timestamp 闭区间过滤
+func (d *Database) SearchPostsCursorRange(keyword string, tr *TimeRange, cursor int, limit int, sortAsc bool) ([]models.Post, error) {
 	var posts []models.Post
 	order := "DESC"
 	cmp := "<"
@@ -366,18 +441,39 @@ func (d *Database) SearchPostsCursor(keyword string, cursor int, limit int, sort
 		cmp = ">"
 	}
 	if q, ok := d.buildFTSQuery(keyword); ok {
-		inner := fmt.Sprintf("SELECT rowid FROM %s WHERE posts_fts MATCH ?", ftsTableName)
 		args := []interface{}{q.match}
-		if q.pid != nil {
-			inner += " AND rowid = ?"
-			args = append(args, *q.pid)
+		var inner string
+		if tr.empty() {
+			// 快路径：LIMIT 下推到 FTS 内层，无需回表即可截断
+			inner = fmt.Sprintf("SELECT rowid FROM %s WHERE posts_fts MATCH ?", ftsTableName)
+			if q.pid != nil {
+				inner += " AND rowid = ?"
+				args = append(args, *q.pid)
+			}
+			if cursor != 0 {
+				inner += fmt.Sprintf(" AND rowid %s ?", cmp)
+				args = append(args, cursor)
+			}
+			inner += fmt.Sprintf(" ORDER BY rowid %s LIMIT ?", order)
+			args = append(args, limit)
+		} else {
+			// 带时间过滤时必须先过滤再 LIMIT：内层 JOIN 回表后应用时间条件
+			inner = fmt.Sprintf(
+				"SELECT f.rowid FROM %s f JOIN posts p ON p.pid = f.rowid WHERE posts_fts MATCH ?",
+				ftsTableName,
+			)
+			if q.pid != nil {
+				inner += " AND f.rowid = ?"
+				args = append(args, *q.pid)
+			}
+			if cursor != 0 {
+				inner += fmt.Sprintf(" AND f.rowid %s ?", cmp)
+				args = append(args, cursor)
+			}
+			inner, args = tr.applySQL(inner, args, "p.timestamp")
+			inner += fmt.Sprintf(" ORDER BY f.rowid %s LIMIT ?", order)
+			args = append(args, limit)
 		}
-		if cursor != 0 {
-			inner += fmt.Sprintf(" AND rowid %s ?", cmp)
-			args = append(args, cursor)
-		}
-		inner += fmt.Sprintf(" ORDER BY rowid %s LIMIT ?", order)
-		args = append(args, limit)
 		sql := fmt.Sprintf(
 			"SELECT %s FROM posts p WHERE p.pid IN (%s) ORDER BY p.pid %s",
 			qualifiedPostColumns("p"), inner, order,
@@ -389,6 +485,7 @@ func (d *Database) SearchPostsCursor(keyword string, cursor int, limit int, sort
 		Select(postListColumns)
 	query = applyPostSearch(query, keyword)
 
+	query = tr.applyQuery(query)
 	if cursor != 0 {
 		query = query.Where(fmt.Sprintf("pid %s ?", cmp), cursor)
 	}
@@ -418,10 +515,15 @@ func (d *Database) GetCommentsByPidCursor(pid int32, cursor int32, limit int, so
 }
 
 func (d *Database) GetPostsOrderBy(field string, cursor int, limit int) ([]models.Post, error) {
+	return d.GetPostsOrderByRange(field, nil, cursor, limit)
+}
+
+// GetPostsOrderByRange 按指定字段排序获取帖子，可按 timestamp 闭区间过滤
+func (d *Database) GetPostsOrderByRange(field string, tr *TimeRange, cursor int, limit int) ([]models.Post, error) {
 	var posts []models.Post
 	orderCol := validateOrderField(field)
 
-	query := d.db.Model(&models.Post{}).Order(orderCol + " DESC")
+	query := tr.applyQuery(d.db.Model(&models.Post{})).Order(orderCol + " DESC")
 	if cursor != 0 {
 		query = query.Where(orderCol+" < ?", cursor)
 	}
@@ -431,6 +533,11 @@ func (d *Database) GetPostsOrderBy(field string, cursor int, limit int) ([]model
 }
 
 func (d *Database) SearchPostsOrderBy(keyword string, field string, cursor int, limit int) ([]models.Post, error) {
+	return d.SearchPostsOrderByRange(keyword, field, nil, cursor, limit)
+}
+
+// SearchPostsOrderByRange 关键词搜索 + 指定字段排序，可按 timestamp 闭区间过滤
+func (d *Database) SearchPostsOrderByRange(keyword string, field string, tr *TimeRange, cursor int, limit int) ([]models.Post, error) {
 	var posts []models.Post
 	orderCol := validateOrderField(field)
 
@@ -444,6 +551,7 @@ func (d *Database) SearchPostsOrderBy(keyword string, field string, cursor int, 
 			sql += " AND p.pid = ?"
 			args = append(args, *q.pid)
 		}
+		sql, args = tr.applySQL(sql, args, "p.timestamp")
 		if cursor != 0 {
 			sql += " AND p." + orderCol + " < ?"
 			args = append(args, cursor)
@@ -454,7 +562,7 @@ func (d *Database) SearchPostsOrderBy(keyword string, field string, cursor int, 
 		return posts, err
 	}
 
-	query := applyPostSearch(d.db.Model(&models.Post{}), keyword).Order(orderCol + " DESC")
+	query := tr.applyQuery(applyPostSearch(d.db.Model(&models.Post{}), keyword)).Order(orderCol + " DESC")
 	if cursor != 0 {
 		query = query.Where(orderCol+" < ?", cursor)
 	}

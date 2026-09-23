@@ -169,6 +169,66 @@ func TestGetPostValid(t *testing.T) {
 	}
 }
 
+func TestGetPostCountFieldsAlignedWithV3(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	r := setupTestRouter(t, database)
+
+	seedTestPosts(t, database, []models.Post{
+		{Pid: 1, Text: "Hello World", Type: "text", Timestamp: 1000, Anonymous: true, Reply: 5, Likenum: 10, PraiseNum: 3},
+	})
+
+	req := httptest.NewRequest("GET", "/post/1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var body map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &body)
+	data := body["data"].(map[string]interface{})
+
+	if data["likenum"] != float64(10) {
+		t.Errorf("data.likenum = %v, want 10 (v3 likenum = follow count)", data["likenum"])
+	}
+	if data["praise_num"] != float64(3) {
+		t.Errorf("data.praise_num = %v, want 3 (v3 praise_num = like count)", data["praise_num"])
+	}
+}
+
+func TestGetPostsCountFieldsAlignedWithV3(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	r := setupTestRouter(t, database)
+
+	seedTestPosts(t, database, []models.Post{
+		{Pid: 1, Text: "Post A", Type: "text", Timestamp: 1000, Likenum: 7, PraiseNum: 2},
+		{Pid: 2, Text: "Post B", Type: "text", Timestamp: 2000, Likenum: 9, PraiseNum: 4},
+	})
+
+	req := httptest.NewRequest("GET", "/posts?limit=10", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var body map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &body)
+	data := body["data"].([]interface{})
+	for i, item := range data {
+		post := item.(map[string]interface{})
+		var wantLike, wantPraise float64
+		switch post["id"] {
+		case float64(1):
+			wantLike, wantPraise = 7, 2
+		case float64(2):
+			wantLike, wantPraise = 9, 4
+		}
+		if post["likenum"] != wantLike {
+			t.Errorf("post[%d].likenum = %v, want %v (v3 likenum = follow count)", i, post["likenum"], wantLike)
+		}
+		if post["praise_num"] != wantPraise {
+			t.Errorf("post[%d].praise_num = %v, want %v (v3 praise_num = like count)", i, post["praise_num"], wantPraise)
+		}
+	}
+}
+
 func TestGetPostNonAnonymous(t *testing.T) {
 	database, cleanup := setupTestDB(t)
 	defer cleanup()

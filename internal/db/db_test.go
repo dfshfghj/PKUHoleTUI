@@ -2,6 +2,7 @@ package db
 
 import (
 	"os"
+	"reflect"
 	"testing"
 
 	"treehole/internal/config"
@@ -772,5 +773,126 @@ func TestDatabaseCounts(t *testing.T) {
 	}
 	if commentCount != 0 {
 		t.Errorf("Empty DB CommentCount = %d, want 0", commentCount)
+	}
+}
+
+func TestPostsTimestampIndex(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	var indexNames []string
+	if err := db.db.Raw("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'posts'").Scan(&indexNames).Error; err != nil {
+		t.Fatalf("query indexes: %v", err)
+	}
+	found := false
+	for _, name := range indexNames {
+		if name == "idx_posts_timestamp" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing index idx_posts_timestamp; got %v", indexNames)
+	}
+}
+
+func TestGetPostsCursorRange(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	var posts []models.Post
+	for i := 1; i <= 6; i++ {
+		posts = append(posts, models.Post{
+			Pid: int32(i), Text: "range probe", Type: "text", Timestamp: int32(i * 1000),
+		})
+	}
+	seedPosts(t, db, posts)
+
+	pids := func(posts []models.Post) []int32 {
+		out := make([]int32, len(posts))
+		for i, p := range posts {
+			out[i] = p.Pid
+		}
+		return out
+	}
+
+	got, err := db.GetPostsCursorRange(&TimeRange{Begin: 2000, End: 4000}, 0, 2, false)
+	if err != nil {
+		t.Fatalf("GetPostsCursorRange: %v", err)
+	}
+	if want := []int32{4, 3}; !reflect.DeepEqual(pids(got), want) {
+		t.Errorf("closed range first page = %v, want %v", pids(got), want)
+	}
+
+	cursor := int(got[len(got)-1].Pid)
+	got, err = db.GetPostsCursorRange(&TimeRange{Begin: 2000, End: 4000}, cursor, 2, false)
+	if err != nil {
+		t.Fatalf("GetPostsCursorRange pagination: %v", err)
+	}
+	if want := []int32{2}; !reflect.DeepEqual(pids(got), want) {
+		t.Errorf("range pagination = %v, want %v", pids(got), want)
+	}
+
+	got, err = db.GetPostsCursorRange(&TimeRange{Begin: 4000}, 0, 10, false)
+	if err != nil {
+		t.Fatalf("GetPostsCursorRange begin-only: %v", err)
+	}
+	if want := []int32{6, 5, 4}; !reflect.DeepEqual(pids(got), want) {
+		t.Errorf("begin-only range = %v, want %v", pids(got), want)
+	}
+
+	got, err = db.GetPostsCursorRange(&TimeRange{End: 2000}, 0, 10, true)
+	if err != nil {
+		t.Fatalf("GetPostsCursorRange end-only asc: %v", err)
+	}
+	if want := []int32{1, 2}; !reflect.DeepEqual(pids(got), want) {
+		t.Errorf("end-only range asc = %v, want %v", pids(got), want)
+	}
+}
+
+func TestSearchPostsCursorRangeFiltersBeforeLimit(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	var posts []models.Post
+	for i := 1; i <= 6; i++ {
+		posts = append(posts, models.Post{
+			Pid: int32(i), Text: "probe keyword here", Type: "text", Timestamp: int32(i * 1000),
+		})
+	}
+	seedPosts(t, db, posts)
+
+	tr := &TimeRange{Begin: 1000, End: 4000}
+	first, err := db.SearchPostsCursorRange("probe", tr, 0, 2, false)
+	if err != nil {
+		t.Fatalf("SearchPostsCursorRange: %v", err)
+	}
+	if len(first) != 2 || first[0].Pid != 4 || first[1].Pid != 3 {
+		t.Fatalf("first page = [%d %d], want [4 3]", first[0].Pid, first[1].Pid)
+	}
+
+	cursor := int(first[1].Pid)
+	second, err := db.SearchPostsCursorRange("probe", tr, cursor, 2, false)
+	if err != nil {
+		t.Fatalf("SearchPostsCursorRange pagination: %v", err)
+	}
+	if len(second) != 2 || second[0].Pid != 2 || second[1].Pid != 1 {
+		t.Fatalf("second page = [%d %d], want [2 1]", second[0].Pid, second[1].Pid)
+	}
+
+	disjoint, err := db.SearchPostsCursorRange("probe", &TimeRange{Begin: 7000}, 0, 10, false)
+	if err != nil {
+		t.Fatalf("SearchPostsCursorRange disjoint range: %v", err)
+	}
+	if len(disjoint) != 0 {
+		t.Errorf("disjoint range results = %d, want 0", len(disjoint))
+	}
+
+	tail, err := db.SearchPostsCursorRange("probe", &TimeRange{Begin: 5000, End: 6000}, 0, 10, false)
+	if err != nil {
+		t.Fatalf("SearchPostsCursorRange tail range: %v", err)
+	}
+	if len(tail) != 2 || tail[0].Pid != 6 || tail[1].Pid != 5 {
+		t.Fatalf("tail range = [%d %d], want [6 5]", tail[0].Pid, tail[1].Pid)
 	}
 }
