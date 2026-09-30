@@ -85,10 +85,22 @@ func (m *LogsDialogModel) Update(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// logsLayout computes the visible log window for a given size, including the
+// scrollbar reservation. Shared by View and mouse hit-testing.
+func (m LogsDialogModel) logsLayout(width, height int) (contentWidth, visibleLines int, bar scrollbarState) {
+	visibleLines = maxInt(1, height-3)
+	contentWidth = maxInt(20, width)
+	bar = scrollbarFor(visibleLines, len(m.lines), visibleLines, m.offset)
+	if bar.Visible {
+		contentWidth = maxInt(1, contentWidth-1)
+	}
+	return contentWidth, visibleLines, bar
+}
+
 func (m LogsDialogModel) View(width, height int) string {
 	var b strings.Builder
 
-	innerWidth := maxInt(20, width-panelContentStyle.GetHorizontalFrameSize())
+	innerWidth := maxInt(20, width)
 	fill := dialogBackgroundFillStyle()
 
 	if m.loading {
@@ -96,21 +108,29 @@ func (m LogsDialogModel) View(width, height int) string {
 	} else if len(m.lines) == 0 {
 		b.WriteString(fillRenderedBackground(vEmptyStyle.Render("暂无日志"), innerWidth, fill))
 	} else {
-		visibleLines := maxInt(1, height-3)
+		contentWidth, visibleLines, bar := m.logsLayout(width, height)
 		end := m.offset + visibleLines
 		if end > len(m.lines) {
 			end = len(m.lines)
 		}
 
+		var rows strings.Builder
 		for i := m.offset; i < end; i++ {
 			line := m.lines[i]
-			if lipgloss.Width(line) > innerWidth {
-				line = clipToVisibleWidth(line, innerWidth)
+			if lipgloss.Width(line) > contentWidth {
+				line = clipToVisibleWidth(line, contentWidth)
 			}
 			renderedLine := vLogLineStyle.Background(colorBg).Render(line)
-			b.WriteString(fillRenderedBackground(renderedLine, innerWidth, fill))
-			b.WriteString("\n")
+			rows.WriteString(fillRenderedBackground(renderedLine, contentWidth, fill))
+			if i != end-1 {
+				rows.WriteString("\n")
+			}
 		}
+		window := rows.String()
+		if bar.Visible {
+			window = appendScrollbar(window, bar, contentWidth)
+		}
+		b.WriteString(window)
 
 		b.WriteString("\n")
 		totalLines := len(m.lines)

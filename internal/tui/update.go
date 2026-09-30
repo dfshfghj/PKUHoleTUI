@@ -41,8 +41,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
+		m.Drag = dragState{}
+		m.Clicks.reset()
 		m.syncPostsPage()
 		return m, m.imageRefreshCmd(nil)
+
+	case tea.MouseClickMsg:
+		if m.MouseDisabled {
+			return m, nil
+		}
+		return m.handleMouseClick(msg)
+
+	case tea.MouseWheelMsg:
+		if m.MouseDisabled {
+			return m, nil
+		}
+		return m.handleMouseWheel(msg)
+
+	case tea.MouseMotionMsg:
+		if m.MouseDisabled {
+			return m, nil
+		}
+		return m.handleMouseMotion(msg)
+
+	case tea.MouseReleaseMsg:
+		if m.MouseDisabled {
+			return m, nil
+		}
+		return m.handleMouseRelease(msg)
 
 	case clearToastMsg:
 		if !m.ToastExpiresAt.IsZero() && time.Now().After(m.ToastExpiresAt) {
@@ -736,11 +762,7 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			if m.Posts.DetailFocus == DetailFocusPost {
 				m.Posts.PostBodyViewport.ScrollDown(1)
 			} else {
-				m.Posts.moveCommentSelection(1)
-				if m.Posts.CurrentPost != nil && m.Posts.shouldPrefetchCommentsMore() {
-					m.Posts.CommentListLoading = true
-					return m, loadCommentsCmd(m.Provider, m.Posts.CurrentPost.Pid, m.Posts.CommentSortAsc, m.Posts.CommentListCursor)
-				}
+				return m.moveCommentsCursor(1)
 			}
 		case key.Matches(msg, shortcut.PgUp):
 			if m.Posts.DetailFocus == DetailFocusPost {
@@ -794,15 +816,7 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case msg.Text == "o":
 		return m.openCurrentImagePanel()
 	case key.Matches(msg, keymap.Direct.Search):
-		m.Posts.Searching = true
-		m.Posts.PostsMode = PostsModeSearchInput
-		m.Posts.SearchInput = ""
-		m.Posts.SearchField = newSearchInput()
-		m.Posts.SearchField.SetValue("")
-		m.Posts.SearchHistoryIndex = len(m.Posts.SearchHistory)
-		m.Posts.SearchHistoryDraft = ""
-		_ = m.Posts.SearchField.Focus()
-		return m, nil
+		return m.beginSearchInput(), nil
 	case key.Matches(msg, keymap.Direct.Tags):
 		m.Dialog = DialogTags
 		if len(m.TagsDialog.groups) == 0 && m.Provider.Mode() == SessionModeOnline {
@@ -817,42 +831,19 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.Dialog = DialogComposer
 		return m, nil
 	case key.Matches(msg, keymap.Direct.Praise):
-		if !m.Posts.CanWrite {
-			return m, m.setWriteUnavailableStatus()
-		}
 		if post := m.Posts.SelectedPost(); post != nil {
-			return m, togglePraiseCmd(m.Provider, post.Pid)
+			return m.runPostAction(post.Pid, actionPraise)
 		}
 	case key.Matches(msg, keymap.Direct.Follow):
-		if !m.Posts.CanWrite {
-			return m, m.setWriteUnavailableStatus()
-		}
 		if post := m.Posts.SelectedPost(); post != nil {
-			return m, toggleAttentionCmd(m.Provider, post.Pid)
+			return m.runPostAction(post.Pid, actionAttention)
 		}
 	case key.Matches(msg, shortcut.Up, shortcut.VimUp):
-		m.Posts.moveCursor(-1)
+		return m.movePostsCursor(-1)
 	case key.Matches(msg, shortcut.Down, shortcut.VimDown):
-		m.Posts.moveCursor(1)
-		if m.Posts.shouldPrefetchMore() {
-			m.Posts.PostListLoading = true
-			if m.Posts.SearchActive {
-				return m, searchPostsCmd(m.Provider, m.Posts.SearchInput, m.Posts.PostListCursor, m.Posts.PostPerPage, m.Posts.ActiveTagID)
-			}
-			return m, loadPostsCmd(m.Provider, m.Posts.PostListCursor, m.Posts.PostPerPage, m.Posts.ActiveTagID)
-		}
+		return m.movePostsCursor(1)
 	case key.Matches(msg, keymap.Direct.OpenDetail):
-		if post := m.Posts.SelectedPost(); post != nil {
-			m.Posts.ShowPostDetail = true
-			m.Posts.PostsMode = PostsModeDetail
-			m.Posts.CurrentPost = post
-			m.Posts.resetComments()
-			m.Posts.CommentListLoading = true
-			m.Posts.PostBodyViewport.GotoTop()
-			m.Posts.DetailFocus = DetailFocusComments
-			m.syncPostsPage()
-			return m, m.imageRefreshCmd(loadPostDetailCmd(m.Provider, post.Pid, true))
-		}
+		return m.openSelectedPostDetail()
 	case key.Matches(msg, shortcut.PgUp):
 		m.Posts.pageMove(-1)
 	case key.Matches(msg, shortcut.PgDown):
@@ -867,6 +858,94 @@ func (m Model) handlePostsKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 	m.syncPostsPage()
 	return m, m.imageRefreshCmd(nil)
+}
+
+// runPostAction toggles praise/follow for one post (keyboard p/f or clicking
+// the ♡/☆ glyph in a header).
+func (m Model) runPostAction(pid int32, action actionKind) (Model, tea.Cmd) {
+	if !m.Posts.CanWrite {
+		return m, m.setWriteUnavailableStatus()
+	}
+	if action == actionAttention {
+		return m, toggleAttentionCmd(m.Provider, pid)
+	}
+	return m, togglePraiseCmd(m.Provider, pid)
+}
+
+// movePostsCursor moves the list cursor like repeated Up/Down presses (so the
+// viewport follows only once the cursor nears an edge) and requests the next
+// page of posts once the cursor nears the end of the loaded list.
+func (m Model) movePostsCursor(delta int) (Model, tea.Cmd) {
+	if delta == 0 {
+		return m, nil
+	}
+	step := 1
+	if delta < 0 {
+		step = -1
+	}
+	for i := 0; i < absInt(delta); i++ {
+		m.Posts.moveCursor(step)
+	}
+	if step > 0 && m.Posts.shouldPrefetchMore() {
+		m.Posts.PostListLoading = true
+		if m.Posts.SearchActive {
+			return m, searchPostsCmd(m.Provider, m.Posts.SearchInput, m.Posts.PostListCursor, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+		}
+		return m, loadPostsCmd(m.Provider, m.Posts.PostListCursor, m.Posts.PostPerPage, m.Posts.ActiveTagID)
+	}
+	m.syncPostsPage()
+	return m, m.imageRefreshCmd(nil)
+}
+
+// moveCommentsCursor is the comment-list counterpart of movePostsCursor.
+func (m Model) moveCommentsCursor(delta int) (Model, tea.Cmd) {
+	if delta == 0 {
+		return m, nil
+	}
+	step := 1
+	if delta < 0 {
+		step = -1
+	}
+	for i := 0; i < absInt(delta); i++ {
+		m.Posts.moveCommentSelection(step)
+	}
+	if step > 0 && m.Posts.CurrentPost != nil && m.Posts.shouldPrefetchCommentsMore() {
+		m.Posts.CommentListLoading = true
+		return m, loadCommentsCmd(m.Provider, m.Posts.CurrentPost.Pid, m.Posts.CommentSortAsc, m.Posts.CommentListCursor)
+	}
+	m.syncPostsPage()
+	return m, m.imageRefreshCmd(nil)
+}
+
+// beginSearchInput focuses the search box (keyboard "/" or a mouse click).
+func (m Model) beginSearchInput() Model {
+	m.Posts.Searching = true
+	m.Posts.PostsMode = PostsModeSearchInput
+	m.Posts.SearchInput = ""
+	m.Posts.SearchField = newSearchInput()
+	m.Posts.SearchField.SetValue("")
+	m.Posts.SearchHistoryIndex = len(m.Posts.SearchHistory)
+	m.Posts.SearchHistoryDraft = ""
+	_ = m.Posts.SearchField.Focus()
+	return m
+}
+
+// openSelectedPostDetail enters the detail page for the selected post
+// (keyboard Enter or a double click).
+func (m Model) openSelectedPostDetail() (Model, tea.Cmd) {
+	post := m.Posts.SelectedPost()
+	if post == nil {
+		return m, nil
+	}
+	m.Posts.ShowPostDetail = true
+	m.Posts.PostsMode = PostsModeDetail
+	m.Posts.CurrentPost = post
+	m.Posts.resetComments()
+	m.Posts.CommentListLoading = true
+	m.Posts.PostBodyViewport.GotoTop()
+	m.Posts.DetailFocus = DetailFocusComments
+	m.syncPostsPage()
+	return m, m.imageRefreshCmd(loadPostDetailCmd(m.Provider, post.Pid, true))
 }
 
 func (m Model) cancelSearchInput() (Model, tea.Cmd) {

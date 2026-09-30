@@ -103,7 +103,6 @@ func (p ScorePageModel) View(width, height int) string {
 	if height < 1 {
 		height = 1
 	}
-	bodyWidth := maxInt(20, width-4)
 	var b strings.Builder
 	b.WriteString("\n\n")
 	if p.Loading {
@@ -118,6 +117,50 @@ func (p ScorePageModel) View(width, height int) string {
 		b.WriteString(vEmptyStyle.Render("暂无成绩数据"))
 		return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, b.String())
 	}
+	b.WriteString(p.scoresPrelude(width))
+	availableRows := maxInt(1, height-16)
+	offset := clampInt(p.Offset, 0, maxInt(0, len(p.Summary.Scores)-availableRows))
+	end := minInt(len(p.Summary.Scores), offset+availableRows)
+	bar, _ := p.scoresBar(height)
+	var barLines []string
+	if bar.Visible {
+		barLines = bar.render()
+	}
+	nameWidth := p.scoresNameWidth(width)
+	for i, score := range p.Summary.Scores[offset:end] {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(vPostMetaStyle.Width(10).Render(shortenCell(score.YearTerm, 10)))
+		b.WriteString(" ")
+		b.WriteString(vPostTextStyle.Width(nameWidth).Render(shortenCell(score.Name, nameWidth)))
+		b.WriteString(" ")
+		b.WriteString(vPostMetaStyle.Width(5).Render(shortenCell(score.Credit, 5)))
+		b.WriteString(" ")
+		b.WriteString(vPostLikeStyle.Width(6).Render(shortenCell(score.Score, 6)))
+		if bar.Visible && i < len(barLines) {
+			b.WriteString(barLines[i])
+		}
+	}
+	if len(p.Summary.Scores) > availableRows {
+		b.WriteString("\n")
+		b.WriteString(vPaginationStyle.Render(fmt.Sprintf(
+			"%d-%d / %d",
+			offset+1,
+			end,
+			len(p.Summary.Scores),
+		)))
+	}
+	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, b.String())
+}
+
+// scoresPrelude renders everything above the score rows (summary card, term
+// line and table header) and ends with a newline so the first score row
+// starts on the next line.
+func (p ScorePageModel) scoresPrelude(width int) string {
+	bodyWidth := maxInt(20, width-4)
+	var b strings.Builder
+	b.WriteString("\n\n")
 	b.WriteString(compactCardStyle(width).Render(
 		lipgloss.JoinHorizontal(lipgloss.Top,
 			vStatLabelStyle.Render("GPA: "), vStatValueStyle.Render(emptyDash(p.Summary.GPA)),
@@ -134,8 +177,7 @@ func (p ScorePageModel) View(width, height int) string {
 		}
 		b.WriteString(vPaginationStyle.Render(truncateVisibleLine(strings.Join(parts, "  "), bodyWidth, "...")))
 	}
-
-	nameWidth := maxInt(14, bodyWidth-28)
+	nameWidth := p.scoresNameWidth(width)
 	b.WriteString("\n\n")
 	b.WriteString(vStatLabelStyle.Width(10).Render("学期"))
 	b.WriteString(" ")
@@ -144,30 +186,25 @@ func (p ScorePageModel) View(width, height int) string {
 	b.WriteString(vStatLabelStyle.Width(5).Render("学分"))
 	b.WriteString(" ")
 	b.WriteString(vStatLabelStyle.Width(6).Render("成绩"))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func (p ScorePageModel) scoresNameWidth(width int) int {
+	bodyWidth := maxInt(20, width-4)
+	return maxInt(14, bodyWidth-28)
+}
+
+// scoresBar describes the score table scrollbar for a given content height.
+func (p ScorePageModel) scoresBar(height int) (scrollbarState, int) {
+	if p.Summary == nil {
+		return scrollbarState{}, 0
+	}
 	availableRows := maxInt(1, height-16)
 	maxOffset := maxInt(0, len(p.Summary.Scores)-availableRows)
 	offset := clampInt(p.Offset, 0, maxOffset)
-	end := minInt(len(p.Summary.Scores), offset+availableRows)
-	for _, score := range p.Summary.Scores[offset:end] {
-		b.WriteString("\n")
-		b.WriteString(vPostMetaStyle.Width(10).Render(shortenCell(score.YearTerm, 10)))
-		b.WriteString(" ")
-		b.WriteString(vPostTextStyle.Width(nameWidth).Render(shortenCell(score.Name, nameWidth)))
-		b.WriteString(" ")
-		b.WriteString(vPostMetaStyle.Width(5).Render(shortenCell(score.Credit, 5)))
-		b.WriteString(" ")
-		b.WriteString(vPostLikeStyle.Width(6).Render(shortenCell(score.Score, 6)))
-	}
-	if len(p.Summary.Scores) > availableRows {
-		b.WriteString("\n")
-		b.WriteString(vPaginationStyle.Render(fmt.Sprintf(
-			"%d-%d / %d",
-			offset+1,
-			end,
-			len(p.Summary.Scores),
-		)))
-	}
-	return lipgloss.Place(width, height, lipgloss.Left, lipgloss.Top, b.String())
+	bar := scrollbarFor(availableRows, len(p.Summary.Scores), availableRows, offset)
+	return bar, offset
 }
 
 func (p *ScorePageModel) Move(delta, height int) {

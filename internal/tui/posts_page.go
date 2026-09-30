@@ -108,14 +108,11 @@ func (p *PostsPageModel) syncViewports(width, height int) {
 		height = 24
 	}
 
-	contentWidth := width - 8
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
 	postHeight := p.calcPostViewportHeight(height)
 
 	if !p.ShowPostDetail && len(p.PostList) > 0 {
 		p.syncCursorToSelection()
+		contentWidth := p.postListContentWidth(width, height)
 		newContent, _ := p.buildPostListContent(contentWidth)
 		if p.postContent != newContent || p.PostViewport.Width() != contentWidth || p.PostViewport.Height() != postHeight {
 			p.PostViewport.SetWidth(contentWidth)
@@ -126,19 +123,19 @@ func (p *PostsPageModel) syncViewports(width, height int) {
 	}
 
 	if p.ShowPostDetail && p.CurrentPost != nil {
-		bodyHeight, commentHeight := p.calcDetailViewportHeights(width, height)
-		bodyContent, _ := p.buildDetailBodyContent(contentWidth)
-		if p.postBodyContent != bodyContent || p.PostBodyViewport.Width() != contentWidth || p.PostBodyViewport.Height() != bodyHeight {
-			p.PostBodyViewport.SetWidth(contentWidth)
-			p.PostBodyViewport.SetHeight(bodyHeight)
+		metrics := p.detailMetrics(width, height)
+		bodyContent, _ := p.buildDetailBodyContent(metrics.BodyWidth)
+		if p.postBodyContent != bodyContent || p.PostBodyViewport.Width() != metrics.BodyWidth || p.PostBodyViewport.Height() != metrics.BodyHeight {
+			p.PostBodyViewport.SetWidth(metrics.BodyWidth)
+			p.PostBodyViewport.SetHeight(metrics.BodyHeight)
 			p.PostBodyViewport.SetContent(bodyContent)
 			p.postBodyContent = bodyContent
 		}
 
-		commentContent := p.buildCommentContent(contentWidth)
-		if p.commentContent != commentContent || p.CommentViewport.Width() != contentWidth || p.CommentViewport.Height() != commentHeight {
-			p.CommentViewport.SetWidth(contentWidth)
-			p.CommentViewport.SetHeight(commentHeight)
+		commentContent := p.buildCommentContent(metrics.CommentsWidth)
+		if p.commentContent != commentContent || p.CommentViewport.Width() != metrics.CommentsWidth || p.CommentViewport.Height() != metrics.CommentsHeight {
+			p.CommentViewport.SetWidth(metrics.CommentsWidth)
+			p.CommentViewport.SetHeight(metrics.CommentsHeight)
 			p.CommentViewport.SetContent(commentContent)
 			p.commentContent = commentContent
 		}
@@ -154,9 +151,11 @@ func (p PostsPageModel) View(width, height int) (string, []imagePlacement) {
 	return p.renderPosts(width, height)
 }
 
-func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement) {
+// renderPostsSearchSection renders the search box block that sits above the
+// post list viewport. It always ends with a newline so the following
+// viewport starts on the next row.
+func (p PostsPageModel) renderPostsSearchSection(width int) string {
 	var b strings.Builder
-	var placements []imagePlacement
 
 	b.WriteString("\n")
 
@@ -181,6 +180,36 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 		b.WriteString(searchStyle.Render("按 / 搜索"))
 	}
 	b.WriteString("\n")
+	return b.String()
+}
+
+func (p PostsPageModel) searchBoxHeight() int {
+	return lipgloss.Height(vSearchInput.Render("x"))
+}
+
+// listViewportActive reports whether the list viewport is rendered at all.
+func (p PostsPageModel) listViewportActive() bool {
+	return len(p.PostList) > 0
+}
+
+// listChromeLines is the number of rows between the top of the content area
+// and the first list viewport row.
+func (p PostsPageModel) listChromeLines(width int) int {
+	if !p.listViewportActive() {
+		return 0
+	}
+	lines := rowOffset(p.renderPostsSearchSection(width))
+	if p.PostListError != "" {
+		lines++
+	}
+	return lines
+}
+
+func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement) {
+	var b strings.Builder
+	var placements []imagePlacement
+
+	b.WriteString(p.renderPostsSearchSection(width))
 
 	if p.PostListLoading && len(p.PostList) == 0 {
 		b.WriteString(vLoadingStyle.Render("加载中..."))
@@ -197,8 +226,7 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 		return b.String(), nil
 	}
 
-	pageWidth := maxInt(20, width-8)
-	contentWidth := pageWidth
+	contentWidth := p.postListContentWidth(width, height)
 	vp := viewport.New(viewport.WithWidth(contentWidth), viewport.WithHeight(p.calcPostViewportHeight(height)))
 	content, postPlacements := p.buildPostListContent(contentWidth)
 	vp.SetContent(content)
@@ -207,7 +235,11 @@ func (p PostsPageModel) renderPosts(width, height int) (string, []imagePlacement
 	}
 	prefixHeight := lipgloss.Height(b.String())
 	placements = append(placements, visiblePlacements(postPlacements, vp.YOffset(), vp.Height(), prefixHeight)...)
-	b.WriteString(vp.View())
+	vpView := vp.View()
+	if bar := p.postListBar(width, height); bar.Visible {
+		vpView = appendScrollbar(vpView, bar, contentWidth)
+	}
+	b.WriteString(vpView)
 	return b.String(), placements
 }
 
@@ -226,30 +258,29 @@ func (p PostsPageModel) renderPostDetail(width, height int) (string, []imagePlac
 		dividerWidth = 20
 	}
 	commentsTitle := p.detailCommentsTitle()
-	commentsTitleStyle := vSectionTitleStyle
+	commentsTitleStyle := p.detailCommentsTitleStyle()
 	bodySectionStyle := vDetailSection
 	commentsSectionStyle := vDetailSection
 	if p.DetailFocus == DetailFocusPost {
 		bodySectionStyle = vDetailSectionFocused
 	} else {
-		commentsTitleStyle = vSectionTitleFocused
 		commentsSectionStyle = vDetailSectionFocused
 	}
 
-	contentWidth := width - 8
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-	bodyHeight, commentHeight := p.calcDetailViewportHeights(width, height)
-	bodyViewport := viewport.New(viewport.WithWidth(contentWidth), viewport.WithHeight(bodyHeight))
-	bodyContent, bodyPlacements := p.buildDetailBodyContent(contentWidth)
+	metrics := p.detailMetrics(width, height)
+	bodyViewport := viewport.New(viewport.WithWidth(metrics.BodyWidth), viewport.WithHeight(metrics.BodyHeight))
+	bodyContent, bodyPlacements := p.buildDetailBodyContent(metrics.BodyWidth)
 	bodyViewport.SetContent(bodyContent)
 	if p.PostBodyViewport != nil {
 		bodyViewport.SetYOffset(p.PostBodyViewport.YOffset())
 	}
 	prefixHeight := lipgloss.Height(b.String())
 	placements = append(placements, visiblePlacements(bodyPlacements, bodyViewport.YOffset(), bodyViewport.Height(), prefixHeight)...)
-	b.WriteString(bodySectionStyle.Render(bodyViewport.View()))
+	bodyView := bodyViewport.View()
+	if metrics.BodyBar.Visible {
+		bodyView = appendScrollbar(bodyView, metrics.BodyBar, metrics.BodyWidth)
+	}
+	b.WriteString(bodySectionStyle.Render(bodyView))
 	b.WriteString("\n")
 
 	b.WriteString(vDividerStyle.Render(strings.Repeat("─", dividerWidth)))
@@ -261,15 +292,26 @@ func (p PostsPageModel) renderPostDetail(width, height int) (string, []imagePlac
 	if len(p.CommentList) == 0 {
 		b.WriteString(commentsSectionStyle.Render(vEmptyStyle.Render("暂无评论")))
 	} else {
-		vp := viewport.New(viewport.WithWidth(contentWidth), viewport.WithHeight(commentHeight))
-		vp.SetContent(p.buildCommentContent(contentWidth))
+		vp := viewport.New(viewport.WithWidth(metrics.CommentsWidth), viewport.WithHeight(metrics.CommentsHeight))
+		vp.SetContent(p.buildCommentContent(metrics.CommentsWidth))
 		if p.CommentViewport != nil {
 			vp.SetYOffset(p.CommentViewport.YOffset())
 		}
-		b.WriteString(commentsSectionStyle.Render(vp.View()))
+		commentsView := vp.View()
+		if metrics.CommentsBar.Visible {
+			commentsView = appendScrollbar(commentsView, metrics.CommentsBar, metrics.CommentsWidth)
+		}
+		b.WriteString(commentsSectionStyle.Render(commentsView))
 	}
 
 	return b.String(), placements
+}
+
+func (p PostsPageModel) detailCommentsTitleStyle() lipgloss.Style {
+	if p.DetailFocus == DetailFocusComments {
+		return vSectionTitleFocused
+	}
+	return vSectionTitleStyle
 }
 
 func (p PostsPageModel) buildDetailBodyContent(contentWidth int) (string, []imagePlacement) {
@@ -623,24 +665,63 @@ func (p *PostsPageModel) postIndexAtLine(target int) int {
 	return maxInt(0, len(p.PostList)-1)
 }
 
+// selectPostAtContentLine puts the cursor on a list content line and selects
+// the post rendered on it.
+func (p *PostsPageModel) selectPostAtContentLine(line int) bool {
+	if !p.listViewportActive() {
+		return false
+	}
+	totalLines := p.totalPostLines()
+	if totalLines <= 0 {
+		return false
+	}
+	p.CursorLine = clampInt(line, 0, totalLines-1)
+	p.SelectedPostIdx = p.postIndexAtLine(p.CursorLine)
+	return true
+}
+
+// selectCommentAtContentLine selects the comment rendered at a comment
+// content line.
+func (p *PostsPageModel) selectCommentAtContentLine(line int) bool {
+	if !p.detailCommentsActive() {
+		return false
+	}
+	totalLines := p.commentLineCount()
+	if totalLines <= 0 {
+		return false
+	}
+	p.CommentCursorLine = clampInt(line, 0, totalLines-1)
+	p.SelectedCommentIdx = p.resolveCommentSelectionAtLine(p.CommentCursorLine, -1)
+	p.scrollCommentCursorIntoView()
+	return true
+}
+
 func (p *PostsPageModel) totalPostLines() int {
+	return p.totalPostLinesAtWidth(p.currentListContentWidth())
+}
+
+func (p *PostsPageModel) totalPostLinesAtWidth(contentWidth int) int {
 	total := 0
 	for i := 0; i < len(p.PostList); i++ {
 		if i > 0 {
 			total++
 		}
-		total += p.postRenderedLinesAt(i)
+		total += p.postRenderedLinesAtWidth(i, contentWidth)
 	}
 	return total
 }
 
 func (p *PostsPageModel) postRenderedLinesAt(index int) int {
+	return p.postRenderedLinesAtWidth(index, p.currentListContentWidth())
+}
+
+func (p *PostsPageModel) postRenderedLinesAtWidth(index, contentWidth int) int {
 	if index < 0 || index >= len(p.PostList) {
 		return 0
 	}
 	post := p.PostList[index]
 	selected := index == p.SelectedPostIdx
-	lineWidth := p.listLineTextWidth(p.currentListContentWidth(), selected)
+	lineWidth := p.listLineTextWidth(contentWidth, selected)
 	headerLines := len(p.postHeaderLines(post, lineWidth))
 	textLines := p.postListTextLines(post, lineWidth)
 	textLineCount := len(textLines)
@@ -725,6 +806,18 @@ func (p *PostsPageModel) calcPostViewportHeight(height int) int {
 }
 
 func (p *PostsPageModel) calcDetailViewportHeights(width, height int) (int, int) {
+	bodyWidth := 20
+	if p.PostBodyViewport != nil && p.PostBodyViewport.Width() > 0 {
+		bodyWidth = p.PostBodyViewport.Width()
+	}
+	commentsWidth := 20
+	if p.CommentViewport != nil && p.CommentViewport.Width() > 0 {
+		commentsWidth = p.CommentViewport.Width()
+	}
+	return p.detailViewportHeightsAt(width, height, bodyWidth, commentsWidth)
+}
+
+func (p *PostsPageModel) detailViewportHeightsAt(width, height, bodyWidth, commentsWidth int) (int, int) {
 	detailFixedLines := p.detailFixedLineCount(width)
 	available := height - detailFixedLines
 	if available < 8 {
@@ -741,8 +834,8 @@ func (p *PostsPageModel) calcDetailViewportHeights(width, height int) (int, int)
 		maxBodyHeight = maxAllowed
 	}
 
-	bodyLines := p.detailBodyLineCount()
-	commentLines := p.commentLineCount()
+	bodyLines := p.detailBodyLineCountAtWidth(bodyWidth)
+	commentLines := p.commentLineCountAtWidth(commentsWidth)
 
 	bodyHeight := minInt(maxInt(bodyLines, minBodyHeight), maxBodyHeight)
 	commentHeight := available - bodyHeight
@@ -871,25 +964,23 @@ func clampInt(value, minValue, maxValue int) int {
 	return value
 }
 
-func (p *PostsPageModel) detailBodyLineCount() int {
-	if p.CurrentPost == nil || p.CurrentPost.Text == "" {
-		if p.CurrentPost == nil {
-			return 1
-		}
+func (p *PostsPageModel) detailBodyLineCountAtWidth(contentWidth int) int {
+	if p.CurrentPost == nil {
+		return 1
 	}
+	lines := p.postDetailLines(*p.CurrentPost, p.detailBodyTextWidth(contentWidth))
+	return len(lines)
+}
+
+func (p *PostsPageModel) detailBodyLineCount() int {
 	width := 20
 	if p.PostBodyViewport != nil && p.PostBodyViewport.Width() > 0 {
 		width = p.PostBodyViewport.Width()
 	}
-	lines := p.postDetailLines(*p.CurrentPost, p.detailBodyTextWidth(width))
-	return len(lines)
+	return p.detailBodyLineCountAtWidth(width)
 }
 
-func (p *PostsPageModel) commentLineCount() int {
-	width := 20
-	if p.CommentViewport != nil && p.CommentViewport.Width() > 0 {
-		width = p.CommentViewport.Width()
-	}
+func (p *PostsPageModel) commentLineCountAtWidth(contentWidth int) int {
 	if len(p.CommentList) == 0 {
 		if p.CommentListLoading || p.CommentListError != "" {
 			return len(strings.Split(p.renderEmptyCommentState(), "\n"))
@@ -898,12 +989,20 @@ func (p *PostsPageModel) commentLineCount() int {
 	}
 	lines := 0
 	for _, c := range p.orderedComments() {
-		lines += len(p.commentLogicalLines(c, width))
+		lines += len(p.commentLogicalLines(c, contentWidth))
 	}
 	if p.CommentListError != "" || p.CommentListLoading {
 		lines += 2
 	}
 	return lines
+}
+
+func (p *PostsPageModel) commentLineCount() int {
+	width := 20
+	if p.CommentViewport != nil && p.CommentViewport.Width() > 0 {
+		width = p.CommentViewport.Width()
+	}
+	return p.commentLineCountAtWidth(width)
 }
 
 func (p *PostsPageModel) shouldPrefetchCommentsMore() bool {
@@ -1086,6 +1185,107 @@ func (p PostsPageModel) postHeaderPlain(post models.Post) string {
 		header = fmt.Sprintf("#%-6d [实名] %s  ❝ %d %s %d %s %d", post.Pid, ts, post.Reply, praiseState, post.PraiseNum, followState, post.Likenum)
 	}
 	return header
+}
+
+// actionKind is a post action that can be triggered from the keyboard or by
+// clicking its glyph in a post header.
+type actionKind int
+
+const (
+	actionPraise actionKind = iota
+	actionAttention
+)
+
+// actionTokenAt reports which header action token covers the given visible
+// column of a rendered header line.
+func actionTokenAt(line string, col int) (actionKind, bool) {
+	if start, end, ok := tokenRangeAt(line, "♡", "♥"); ok && col >= start && col < end {
+		return actionPraise, true
+	}
+	if start, end, ok := tokenRangeAt(line, "☆", "★"); ok && col >= start && col < end {
+		return actionAttention, true
+	}
+	return 0, false
+}
+
+// tokenRangeAt returns the visible column range (end exclusive) of a header
+// token: the glyph, an optional surrounding "(...)", and its trailing count.
+func tokenRangeAt(line string, glyphs ...string) (int, int, bool) {
+	for _, glyph := range glyphs {
+		idx := strings.Index(line, glyph)
+		if idx < 0 {
+			continue
+		}
+		startByte, endByte := idx, idx+len(glyph)
+		if startByte > 0 && line[startByte-1] == '(' {
+			startByte--
+		}
+		rest := line[endByte:]
+		if strings.HasPrefix(rest, ")") {
+			endByte++
+			rest = rest[1:]
+		}
+		if strings.HasPrefix(rest, " ") {
+			digits := 0
+			for digits < len(rest)-1 && rest[1+digits] >= '0' && rest[1+digits] <= '9' {
+				digits++
+			}
+			if digits > 0 {
+				endByte += 1 + digits
+			}
+		}
+		return lipgloss.Width(line[:startByte]), lipgloss.Width(line[:endByte]), true
+	}
+	return 0, 0, false
+}
+
+// postActionAtContentLine maps a click inside the post list onto the
+// praise/follow token of the post header it hits.
+func (p *PostsPageModel) postActionAtContentLine(line, col int) (int32, actionKind, bool) {
+	if !p.listViewportActive() {
+		return 0, 0, false
+	}
+	index := p.postIndexAtLine(line)
+	if index < 0 || index >= len(p.PostList) {
+		return 0, 0, false
+	}
+	contentWidth := p.currentListContentWidth()
+	selected := index == p.SelectedPostIdx
+	headerLines := p.postHeaderLines(p.PostList[index], p.listLineTextWidth(contentWidth, selected))
+
+	start := 0
+	for i := 0; i < index; i++ {
+		start += p.postRenderedLinesAtWidth(i, contentWidth) + 1 // separator
+	}
+	offset := line - start
+	if offset < 0 || offset >= len(headerLines) {
+		return 0, 0, false
+	}
+
+	// The marker prefix is two cells; the selected row draws its accent frame
+	// in front of it, shifting the header text by another two cells.
+	base := 2
+	if selected {
+		base += 2
+	}
+	action, ok := actionTokenAt(stripANSISequences(headerLines[offset]), col-base)
+	if !ok {
+		return 0, 0, false
+	}
+	return p.PostList[index].Pid, action, true
+}
+
+// detailHeaderActionAt maps a click on the detail header onto its
+// praise/follow token.
+func (p *PostsPageModel) detailHeaderActionAt(width, lineOffset, col int) (actionKind, bool) {
+	if p.CurrentPost == nil {
+		return 0, false
+	}
+	lines := wrapVisibleLine(p.detailHeaderPlain(), maxInt(1, width))
+	if lineOffset < 0 || lineOffset >= len(lines) {
+		return 0, false
+	}
+	return actionTokenAt(lines[lineOffset], col)
 }
 
 func (p PostsPageModel) postHeaderLines(post models.Post, width int) []string {

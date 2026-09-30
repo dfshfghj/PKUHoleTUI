@@ -150,6 +150,13 @@ func renderToolsHelp(width, height int) string {
 	add("p: 点赞")
 	add("f: 关注")
 	add("t: 标签筛选")
+	add("")
+	addHeading("鼠标")
+	add("单击: 选中 / 聚焦；双击帖子: 打开详情")
+	add("单击 ♡ / ☆: 点赞 / 关注")
+	add("滚轮: 移动光标（页面跟随）；拖动右侧滚动条: 拖动浏览")
+	add("M 或 :mouse: 关闭/开启鼠标上报")
+	add("关闭后恢复终端原生选中；开启时可用 Shift+拖选")
 
 	body := strings.Join(lines, "\n")
 	return renderToolsBodyWithFooter(body, "?: 帮助 | Esc: 关闭", width, height)

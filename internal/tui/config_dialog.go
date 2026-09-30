@@ -271,23 +271,45 @@ func (m *ConfigDialogModel) ensureCursorVisible() {
 	}
 }
 
-func (m *ConfigDialogModel) View(width, height int) string {
-	var b strings.Builder
+// editorLayout computes the editor row budget, the line-number gutter metrics
+// and the scrollbar for a given size. Shared by View and mouse hit-testing.
+func (m ConfigDialogModel) editorLayout(width, height int) (lineNumberWidth, separatorWidth, contentWidth int, bar scrollbarState) {
 	statusHeight := 0
 	if m.saving || m.saveOK || m.lastErr != "" {
 		statusHeight = 1
 	}
 	editorHeight := maxInt(1, height-statusHeight)
+	lineNumberWidth = len(fmt.Sprintf("%d", len(m.lines)))
+	separatorWidth = lipgloss.Width(" │ ")
+	contentWidth = maxInt(1, width-lineNumberWidth-separatorWidth)
+	bar = scrollbarFor(editorHeight, len(m.lines), editorHeight, m.offset)
+	if bar.Visible {
+		contentWidth = maxInt(1, contentWidth-1)
+	}
+	return lineNumberWidth, separatorWidth, contentWidth, bar
+}
+
+// editorHeight mirrors editorLayout's row budget for a given size.
+func (m ConfigDialogModel) editorHeight(height int) int {
+	statusHeight := 0
+	if m.saving || m.saveOK || m.lastErr != "" {
+		statusHeight = 1
+	}
+	return maxInt(1, height-statusHeight)
+}
+
+func (m *ConfigDialogModel) View(width, height int) string {
+	var b strings.Builder
+	editorHeight := m.editorHeight(height)
 	m.viewHeight = editorHeight
 	m.ensureCursorVisible()
 
 	end := minInt(len(m.lines), m.offset+editorHeight)
-	lineNumberWidth := len(fmt.Sprintf("%d", len(m.lines)))
-	separatorWidth := lipgloss.Width(" │ ")
-	contentWidth := maxInt(1, width-lineNumberWidth-separatorWidth)
+	lineNumberWidth, separatorWidth, contentWidth, bar := m.editorLayout(width, height)
 	m.viewWidth = contentWidth
 	m.ensureCursorVisible()
 	fill := dialogBackgroundFillStyle()
+	var rows strings.Builder
 	for i := m.offset; i < end; i++ {
 		number := vStatLabelStyle.
 			Background(colorBg).
@@ -300,12 +322,17 @@ func (m *ConfigDialogModel) View(width, height int) string {
 		row := number +
 			fill.Render(" │ ") +
 			line
-		row = fillRenderedBackground(row, width, fill)
-		b.WriteString(row)
+		row = fillRenderedBackground(row, lineNumberWidth+separatorWidth+contentWidth, fill)
+		rows.WriteString(row)
 		if i != end-1 {
-			b.WriteString("\n")
+			rows.WriteString("\n")
 		}
 	}
+	editor := rows.String()
+	if bar.Visible {
+		editor = appendScrollbar(editor, bar, lineNumberWidth+separatorWidth+contentWidth)
+	}
+	b.WriteString(editor)
 
 	if m.saving {
 		b.WriteString("\n")

@@ -132,9 +132,43 @@ func (m *NotificationDialogModel) Update(msg tea.KeyPressMsg) bool {
 	return false
 }
 
+// windowLayout computes the visible notification window: the rendered items
+// at the final (scrollbar-aware) width, the visible index range and the
+// scrollbar. Shared by View and mouse hit-testing.
+func (m NotificationDialogModel) windowLayout(width, height int) (rendered []string, start, end, itemWidth int, bar scrollbarState) {
+	availableHeight := maxInt(1, height-3)
+	itemWidth = width
+	rendered = make([]string, len(m.items))
+	for i := range m.items {
+		rendered[i] = m.renderItem(m.items[i], i == m.selected, itemWidth)
+	}
+	start, end = notificationVisibleRange(m.selected, rendered, availableHeight)
+	if len(m.items) > end-start {
+		// The window follows the selection, so the bar maps track rows to
+		// item indices rather than to a linear scroll offset.
+		bar = scrollbarFor(renderedLines(rendered[start:end]), len(m.items), 1, m.selected)
+	}
+	if bar.Visible {
+		itemWidth = maxInt(1, width-1)
+		for i := range m.items {
+			rendered[i] = m.renderItem(m.items[i], i == m.selected, itemWidth)
+		}
+		start, end = notificationVisibleRange(m.selected, rendered, availableHeight)
+	}
+	return rendered, start, end, itemWidth, bar
+}
+
+func renderedLines(blocks []string) int {
+	total := 0
+	for _, block := range blocks {
+		total += lipgloss.Height(block)
+	}
+	return total
+}
+
 func (m NotificationDialogModel) View(width, height int) string {
 	var b strings.Builder
-	innerWidth := maxInt(24, width-panelContentStyle.GetHorizontalFrameSize())
+	innerWidth := maxInt(24, width)
 	fill := dialogBackgroundFillStyle()
 
 	switch {
@@ -143,18 +177,12 @@ func (m NotificationDialogModel) View(width, height int) string {
 	case len(m.items) == 0:
 		b.WriteString(fillRenderedBackground(vEmptyStyle.Render("暂无通知"), innerWidth, fill))
 	default:
-		renderedItems := make([]string, len(m.items))
-		for i := range m.items {
-			renderedItems[i] = m.renderItem(m.items[i], i == m.selected, innerWidth)
+		renderedItems, start, end, itemWidth, bar := m.windowLayout(innerWidth, height)
+		window := strings.Join(renderedItems[start:end], "\n")
+		if bar.Visible {
+			window = appendScrollbar(window, bar, itemWidth)
 		}
-		availableHeight := maxInt(1, height-3)
-		start, end := notificationVisibleRange(m.selected, renderedItems, availableHeight)
-		for i := start; i < end; i++ {
-			b.WriteString(renderedItems[i])
-			if i != end-1 {
-				b.WriteString("\n")
-			}
-		}
+		b.WriteString(window)
 		b.WriteString("\n")
 		pagination := vPaginationStyle.Render(fmt.Sprintf("共 %d 条 | 当前 %d/%d", m.total, m.selected+1, len(m.items)))
 		b.WriteString(fillRenderedBackground(pagination, innerWidth, fill))

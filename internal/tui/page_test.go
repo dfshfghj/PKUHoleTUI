@@ -224,8 +224,14 @@ func TestBuildPostListContentWrapsToViewportWidth(t *testing.T) {
 	content, _ := m.Posts.buildPostListContent(contentWidth)
 	stripped := stripANSI(content)
 
-	if !strings.Contains(stripped, strings.Repeat("A", 16)) {
-		t.Fatal("wrapped content missing expected first chunk")
+	// The first wrapped chunk spans the viewport width minus the line prefix
+	// (2 cells) and the selected-post border/padding (2 cells).
+	firstChunk := contentWidth - 4
+	if firstChunk < 1 {
+		firstChunk = 1
+	}
+	if !strings.Contains(stripped, strings.Repeat("A", firstChunk)) {
+		t.Fatalf("wrapped content missing expected first chunk of %d columns", firstChunk)
 	}
 	if strings.Contains(stripped, longLine) {
 		t.Fatal("long line should be split before rendering")
@@ -266,7 +272,10 @@ func TestBuildPostListContentNormalizesKeycapSequences(t *testing.T) {
 	if strings.Contains(content, "\uFE0F") || strings.Contains(content, "\u20E3") {
 		t.Fatalf("rendered content should strip keycap combining runes, got %q", content)
 	}
-	if !strings.Contains(content, "q22⑦7685") || !strings.Contains(content, "45") {
+	// Wrapping may split the digits at any column; the base runes must stay
+	// readable in order regardless of where the break lands.
+	joined := strings.Join(strings.Fields(content), "")
+	if !strings.Contains(joined, "q22⑦768545") {
 		t.Fatalf("rendered content should keep readable base digits after wrapping, got %q", content)
 	}
 }

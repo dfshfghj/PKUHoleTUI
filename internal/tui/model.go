@@ -298,6 +298,13 @@ type Model struct {
 	LeaderPending bool
 	CommandActive bool
 	CommandInput  string
+
+	Drag   dragState
+	Clicks clickTracker
+
+	// MouseDisabled stops reporting mouse events so the terminal regains its
+	// own text selection (toggled with M or :mouse).
+	MouseDisabled bool
 }
 
 func NewModel(database *db.Database, client *client.Client, cfg *config.Config, session SessionState) Model {

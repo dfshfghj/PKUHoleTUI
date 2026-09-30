@@ -82,6 +82,7 @@ type Direct struct {
 	ModeCycle              key.Binding
 	Backspace              key.Binding
 	GoToTop                key.Binding
+	MouseToggle            key.Binding
 }
 
 type ShortCut struct {
@@ -218,6 +219,7 @@ var keymap = struct {
 		ModeCycle:              newKeyBinding([]string{"m"}, "m", "切换模式"),
 		Backspace:              newKeyBinding([]string{"backspace"}, "Backspace", "删除字符"),
 		GoToTop:                newKeyBinding([]string{"g"}, "g", "回到顶部"),
+		MouseToggle:            newKeyBinding([]string{"M"}, "M", "鼠标开关"),
 	},
 }
 
@@ -375,6 +377,8 @@ func (m Model) contextualHelpItems() []helpItem {
 			keymap.Direct.OpenDetail,
 			keymap.Direct.Search,
 			newKeyBinding([]string{"r"}, "r", "刷新列表"),
+			newKeyBinding([]string{"mouse"}, "鼠标", "单击/拖动"),
+			keymap.Direct.MouseToggle,
 		)
 		if m.Session.Mode == SessionModeOnline {
 			bindings = append(bindings, keymap.Direct.Tags)
@@ -488,6 +492,10 @@ func (m Model) handleDirectKey(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 	}
 	if key.Matches(msg, keymap.Direct.Quit) && m.Dialog == DialogNone && !m.Posts.Searching {
 		return m, tea.Quit, true
+	}
+	if key.Matches(msg, keymap.Direct.MouseToggle) && m.Dialog == DialogNone && !m.Posts.Searching {
+		next, cmd := m.toggleMouse()
+		return next, cmd, true
 	}
 	if key.Matches(msg, keymap.Direct.ToolsHelp) && m.Dialog == DialogNone && !m.Posts.Searching {
 		if m.Page == PageDashboard {
@@ -664,6 +672,8 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 		return m.switchPage(PageScores)
 	case "reload", "refresh":
 		return m.reloadCurrentMode()
+	case "mouse":
+		return m.toggleMouse()
 	case "search":
 		return m.commandSearch(arg)
 	case "tag":

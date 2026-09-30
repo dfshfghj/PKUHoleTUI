@@ -43,6 +43,11 @@ func (m Model) View() tea.View {
 
 	view := tea.NewView(rendered)
 	view.AltScreen = true
+	if m.MouseDisabled {
+		view.MouseMode = tea.MouseModeNone
+	} else {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
 	return view
 }
 
@@ -160,19 +165,7 @@ func (m Model) renderMainLayout(width, height int) (string, []imagePlacement) {
 	m.Width = width
 	m.Height = height
 
-	var tabBar string
-	if m.Page != PageDashboard {
-		tabs := []string{"同步", "帖子", "课表", "成绩"}
-		var segments []powerlineSegment
-		for i, t := range tabs {
-			if i == m.TabCursor {
-				segments = append(segments, powerlineSegment{Text: t, Style: tabItemActiveStyle})
-			} else {
-				segments = append(segments, powerlineSegment{Text: t, Style: tabItemStyle})
-			}
-		}
-		tabBar = m.renderTabBar(width, m.renderPowerlineGroup(segments, powerlineRight))
-	}
+	tabBar := m.renderMainTabBar(width)
 	var footer string
 	if m.Page != PageDashboard {
 		footer = m.renderStatusLine(width)
@@ -343,12 +336,25 @@ func (m Model) overlayStatusLine(width, height int, body string) string {
 	return lipgloss.NewCompositor(baseLayer, statusLayer).Render()
 }
 
-func (m Model) overlayToast(screenWidth int, body string) string {
+// toastView renders the toast overlay and reports its screen rect so mouse
+// hit-testing can treat the toast as opaque.
+func (m Model) toastView(screenWidth int) (string, rect, bool) {
+	if m.ToastMsg == "" || screenWidth <= 0 {
+		return "", rect{}, false
+	}
 	toastW := max(screenWidth/4, 20)
 	toast := toastStyle.Width(toastW).Render(m.ToastMsg)
+	return toast, rect{X: maxInt(0, screenWidth-toastW-2), Y: 1, W: toastW, H: lipgloss.Height(toast)}, true
+}
+
+func (m Model) overlayToast(screenWidth int, body string) string {
+	toast, toastRect, ok := m.toastView(screenWidth)
+	if !ok {
+		return body
+	}
 
 	baseLayer := lipgloss.NewLayer(body)
-	toastLayer := lipgloss.NewLayer(toast).X(screenWidth - toastW - 2).Y(1).Z(2)
+	toastLayer := lipgloss.NewLayer(toast).X(toastRect.X).Y(toastRect.Y).Z(2)
 	return lipgloss.NewCompositor(baseLayer, toastLayer).Render()
 }
 
@@ -371,6 +377,26 @@ func (m Model) contentAreaHeightForSize(width, height int) int {
 func (m Model) renderTabBar(width int, content string) string {
 	innerWidth := width
 	return tabBarStyle.Width(innerWidth).MaxWidth(innerWidth).Render(content)
+}
+
+func mainTabs() []string {
+	return []string{"同步", "帖子", "课表", "成绩"}
+}
+
+func (m Model) renderMainTabBar(width int) string {
+	if m.Page == PageDashboard {
+		return ""
+	}
+	tabs := mainTabs()
+	segments := make([]powerlineSegment, 0, len(tabs))
+	for i, tab := range tabs {
+		if i == m.TabCursor {
+			segments = append(segments, powerlineSegment{Text: tab, Style: tabItemActiveStyle})
+		} else {
+			segments = append(segments, powerlineSegment{Text: tab, Style: tabItemStyle})
+		}
+	}
+	return m.renderTabBar(width, m.renderPowerlineGroup(segments, powerlineRight))
 }
 
 func (m Model) renderStatusLine(width int) string {
