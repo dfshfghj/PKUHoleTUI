@@ -32,7 +32,7 @@ func Help(c *gin.Context) {
 		{"method": "GET", "route": "/chapi/api/v3/hole/get?pid=123", "description": "Origin-compatible read-only mirror: single hole info."},
 		{"method": "GET", "route": "/chapi/api/v3/comment/list?pid=123&page=1&limit=10&sort=0", "description": "Origin-compatible read-only mirror: paginated comments for a hole."},
 		{"method": "GET", "route": "/chapi/api/v3/message/un_read | /chapi/api/v3/message/index | /chapi/api/v3/tags/tree", "description": "Origin-compatible read-only mirror: static defaults (no user state)."},
-		{"method": "GET", "route": "/chapi/api/v3/media/getThumbnail | /chapi/api/v3/media/getImageBinary?id= or pid=", "description": "Origin-compatible read-only mirror: serve local images."},
+		{"method": "GET", "route": "/chapi/api/v3/media/getThumbnail | /chapi/api/v3/media/getMediaBinary | /chapi/api/v3/media/getImageBinary?id= or pid=", "description": "Origin-compatible read-only mirror: serve local images."},
 	})
 }
 

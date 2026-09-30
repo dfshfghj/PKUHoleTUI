@@ -28,6 +28,7 @@ func Init(e *gin.Engine, database *db.Database) {
 		v3.GET("/message/index", handles.V3MessageIndex)
 		v3.GET("/tags/tree", handles.V3TagsTree)
 		v3.GET("/media/getThumbnail", handles.GetImage)
+		v3.GET("/media/getMediaBinary", handles.GetImage)
 		v3.GET("/media/getImageBinary", handles.GetImage)
 	}
 
