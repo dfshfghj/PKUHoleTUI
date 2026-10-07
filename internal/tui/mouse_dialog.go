@@ -8,10 +8,17 @@ import (
 // dialogScrollView returns the scroll container of the open dialog under the
 // cursor, if any.
 func (m Model) dialogScrollView(x, y int) (mouseTarget, rect, bool) {
+	if m.Dialog == DialogJobLog {
+		body := m.panelBodyView(m.Width, m.Height)
+		if body.contains(x, y) {
+			return mouseTargetJobLog, body, true
+		}
+		return mouseTargetNone, rect{}, false
+	}
 	if m.Dialog != DialogTools {
 		return mouseTargetNone, rect{}, false
 	}
-	body := m.toolsBodyView(m.Width, m.Height)
+	body := m.panelBodyView(m.Width, m.Height)
 	if !body.contains(x, y) {
 		return mouseTargetNone, rect{}, false
 	}
@@ -50,6 +57,11 @@ func (m Model) dialogScrollbarAt(x, y int) (mouseTarget, scrollbarState, int, bo
 		if bar.Visible && x == body.X+itemWidth && y < body.Y+renderedLines(rendered[start:end]) {
 			return target, bar, body.Y, true
 		}
+	case mouseTargetJobLog:
+		contentWidth, visibleLines, bar := m.JobLog.Logs.logsLayout(body.W, body.H)
+		if bar.Visible && x == body.X+contentWidth && y < body.Y+visibleLines {
+			return target, bar, body.Y, true
+		}
 	}
 	return mouseTargetNone, scrollbarState{}, 0, false
 }
@@ -69,12 +81,15 @@ func (m *Model) scrollDialogAt(x, y, delta int) {
 	case mouseTargetNotifications:
 		notifications := &m.ToolsDialog.Notifications
 		notifications.selected = clampInt(notifications.selected+delta, 0, maxInt(0, len(notifications.items)-1))
+	case mouseTargetJobLog:
+		logs := &m.JobLog.Logs
+		logs.offset = clampInt(logs.offset+delta, 0, maxInt(0, len(logs.lines)-1))
 	}
 }
 
 func (m *Model) scrollConfigEditor(delta int) {
 	config := &m.ToolsDialog.Config
-	body := m.toolsBodyView(m.Width, m.Height)
+	body := m.panelBodyView(m.Width, m.Height)
 	maxOffset := maxInt(0, len(config.lines)-config.editorHeight(body.H))
 	config.offset = clampInt(config.offset+delta, 0, maxOffset)
 }

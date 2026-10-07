@@ -784,8 +784,11 @@ func TestViewHomeExtremeStats(t *testing.T) {
 	m.Page = PageHome
 	m.Home.LoggedIn = true
 	m.Home.LoginUser = "testuser"
-	m.Home.CrawlerState = CrawlerRunning
-	m.Home.LastCrawlPage = 99999
+	m.Home.Jobs = []CrawlerJob{newCrawlerJob("极端参数", CrawlerParams{
+		Mode: CrawlSequential, StartPage: 99999, Pages: 99999, Loop: true,
+		LoopDelaySeconds: 99999, PageDelaySeconds: 99999,
+		PostBatchSize: 200, CommentLimit: 200, ConvertWebp: true,
+	})}
 	m.Width = 80
 	m.Height = 24
 
@@ -1077,7 +1080,6 @@ func TestViewFrameMatchesConfiguredDimensionsHome(t *testing.T) {
 	m.Page = PageHome
 	m.Home.LoggedIn = true
 	m.Home.LoginUser = "testuser"
-	m.Home.CrawlerState = CrawlerStopped
 	m.Width = 80
 	m.Height = 24
 
@@ -1412,7 +1414,6 @@ func TestViewHomeStrippedLines(t *testing.T) {
 	m.Page = PageHome
 	m.Home.LoggedIn = true
 	m.Home.LoginUser = "testuser"
-	m.Home.CrawlerState = CrawlerStopped
 	m.Width = 80
 	m.Height = 24
 
@@ -1437,7 +1438,7 @@ func TestViewHomeStrippedLines(t *testing.T) {
 
 	// Check key content lines
 	allText := strings.Join(lines, " ")
-	expectedContent := []string{"TreeHole", "已登录", "testuser", "已停止", "上次爬取", "第0页"}
+	expectedContent := []string{"TreeHole", "已登录", "testuser", "后台任务", "暂无后台任务"}
 	for _, want := range expectedContent {
 		if !strings.Contains(allText, want) {
 			t.Errorf("Missing expected content: %q", want)
@@ -1932,16 +1933,16 @@ func TestViewStrippedOutputNotEmpty(t *testing.T) {
 		name  string
 		model Model
 	}{
-		{"home_stopped", func() Model {
+		{"home_no_jobs", func() Model {
 			m := newTestModel()
 			m.Page = PageHome
-			m.Home.CrawlerState = CrawlerStopped
 			return m
 		}()},
-		{"home_running", func() Model {
+		{"home_with_jobs", func() Model {
 			m := newTestModel()
 			m.Page = PageHome
-			m.Home.CrawlerState = CrawlerRunning
+			m.Home.Jobs = []CrawlerJob{newCrawlerJob("全量", defaultCrawlerParams())}
+			m.Home.SelectedJob = 0
 			return m
 		}()},
 		{"posts_empty", func() Model {

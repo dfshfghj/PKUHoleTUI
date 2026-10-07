@@ -21,6 +21,8 @@ const (
 	logFileName           = "crawler.log"
 	tuiLogFileName        = "tui.log"
 	searchHistoryFileName = ".search_history"
+	crawlerJobsFileName   = "crawler-jobs.json"
+	crawlerJobLogDirName  = "crawler-jobs"
 )
 
 type runtimePaths struct {
@@ -109,6 +111,22 @@ func TUILogPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(paths.dataDir, tuiLogFileName), nil
+}
+
+func CrawlerJobsPath() (string, error) {
+	paths, err := resolveRuntimePaths()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(paths.dataDir, crawlerJobsFileName), nil
+}
+
+func CrawlerJobLogDir() (string, error) {
+	paths, err := resolveRuntimePaths()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(paths.dataDir, crawlerJobLogDirName), nil
 }
 
 func SearchHistoryPath() (string, error) {

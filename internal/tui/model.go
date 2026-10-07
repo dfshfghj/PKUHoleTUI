@@ -35,22 +35,7 @@ const (
 	DialogComposer
 	DialogTags
 	DialogCourseDetail
-)
-
-type CrawlerState int
-
-const (
-	CrawlerStopped CrawlerState = iota
-	CrawlerRunning
-	CrawlerError
-)
-
-type HomeFocus int
-
-const (
-	HomeFocusStart HomeFocus = iota
-	HomeFocusStop
-	HomeFocusMode
+	DialogJobLog
 )
 
 type PostsMode int
@@ -69,29 +54,18 @@ const (
 	DetailFocusComments
 )
 
-type CrawlMsg struct {
-	Page         int
-	Duration     time.Duration
-	Summary      string
-	PostCount    int
-	CommentCount int
-	Error        error
-}
-
-type CrawlerRunState struct {
-	Active        bool
-	StartPage     int
-	PagesPerRound int
-	Loop          bool
-	LoopDelay     int
-	PageDelay     int
-	PagesCrawled  int
-	Round         int
-	RoundPosts    int
-	RoundComments int
-}
-
 type TickMsg time.Time
+
+type jobLogLoadedMsg struct {
+	JobID string
+	Lines []string
+	Error error
+}
+
+type crawlerJobsLoadedMsg struct {
+	Jobs  []CrawlerJob
+	Error error
+}
 
 type LoginMsg struct {
 	Username string
@@ -281,6 +255,7 @@ type Model struct {
 	AuthDialog    AuthChallengeDialogModel
 	Composer      ComposerDialogModel
 	TagsDialog    TagsDialogModel
+	JobLog        JobLogDialogModel
 
 	CourseDetailDay         string
 	CourseDetailTime        string
@@ -339,6 +314,7 @@ func NewModel(database *db.Database, client *client.Client, cfg *config.Config, 
 		AuthDialog:    authDialog,
 		Composer:      NewComposerDialog(),
 		TagsDialog:    NewTagsDialog(),
+		JobLog:        NewJobLogDialog(),
 	}
 }
 
@@ -353,6 +329,7 @@ func (m Model) Init() tea.Cmd {
 		},
 		loadDashboardNotificationsCmd(m.Client),
 		loadDashboardHotPostsCmd(),
+		loadCrawlerJobsCmd(),
 		tickCmd(),
 	)
 }
@@ -381,6 +358,9 @@ func (m *Model) ensureDialogModels() {
 	}
 	if !m.TagsDialog.initialized() {
 		m.TagsDialog = NewTagsDialog()
+	}
+	if m.JobLog.JobID == "" {
+		m.JobLog = NewJobLogDialog()
 	}
 	if m.Posts.ImageClient == nil {
 		m.Posts.ImageClient = m.Client

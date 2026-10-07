@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -736,7 +737,7 @@ func TestLogsDialogWheelScrollsAndShowsBar(t *testing.T) {
 	}
 	m.ToolsDialog.Logs.SetLines(lines)
 
-	body := m.toolsBodyView(m.Width, m.Height)
+	body := m.panelBodyView(m.Width, m.Height)
 	m = wheelAt(m, body.X+2, body.Y+1, tea.MouseWheelDown)
 	if got := m.ToolsDialog.Logs.Offset(); got != mouseWheelLines {
 		t.Fatalf("logs offset = %d, want %d", got, mouseWheelLines)
@@ -773,7 +774,7 @@ func TestConfigEditorClickPlacesCursor(t *testing.T) {
 	m.ToolsDialog.Config.lines = []string{"aaaa", "bbbb", "cccc", "dddd"}
 	m.ToolsDialog.Config.offset = 0
 
-	body := m.toolsBodyView(m.Width, m.Height)
+	body := m.panelBodyView(m.Width, m.Height)
 	lines := frameLines(viewString(m))
 	row := lineIndexContaining(lines, "cccc")
 	if row < 0 {
@@ -802,7 +803,7 @@ func TestNotificationClickSelectsItem(t *testing.T) {
 	}
 	m.ToolsDialog.Notifications.SetNotifications(models.NotificationTypeInteractive, items, len(items))
 
-	body := m.toolsBodyView(m.Width, m.Height)
+	body := m.panelBodyView(m.Width, m.Height)
 	rendered, start, _, _, _ := m.ToolsDialog.Notifications.windowLayout(body.W, body.H)
 	if start != 0 {
 		t.Fatalf("window start = %d, want 0", start)
@@ -853,5 +854,184 @@ func TestDialogIsModalForMouse(t *testing.T) {
 	m = clickAt(m, 3, m.postsListView().TopY+1)
 	if m.Posts.SelectedPostIdx != before {
 		t.Fatal("clicks under the tags dialog must not reach the list")
+	}
+}
+
+func testHomeModel(t *testing.T) Model {
+	t.Helper()
+	useTempWorkingDir(t, t.TempDir())
+	m := newTestModel()
+	m.Page = PageHome
+	m.Width = 80
+	m.Height = 30
+	m.Home.Jobs = []CrawlerJob{
+		newCrawlerJob("任务一", defaultCrawlerParams()),
+		newCrawlerJob("任务二", defaultCrawlerParams()),
+	}
+	m.Home.SelectedJob = 0
+	m.Home.Focus = HomeFocusJobs
+	return m
+}
+
+// TestHomeRowGeometryMatchesFrame locks the sync page row rectangles to the
+// rendered frame so clicks land on what the user sees.
+func TestHomeRowGeometryMatchesFrame(t *testing.T) {
+	m := testHomeModel(t)
+	view := m.homePageView()
+	if !view.Active {
+		t.Fatal("home view should be active on PageHome")
+	}
+	lines := frameLines(viewString(m))
+	for idx, row := range view.Jobs {
+		if row.Y < 0 || row.Y >= len(lines) {
+			t.Fatalf("job %d row %d outside the frame", idx, row.Y)
+		}
+		if !strings.Contains(lines[row.Y], m.Home.Jobs[idx].Name) {
+			t.Fatalf("row %d = %q, want job %q", row.Y, lines[row.Y], m.Home.Jobs[idx].Name)
+		}
+	}
+	for idx, row := range view.Params {
+		if row.Y < 0 || row.Y >= len(lines) {
+			t.Fatalf("param row %d outside the frame", idx)
+		}
+		if !strings.Contains(lines[row.Y], m.Home.paramRows()[idx].Label) {
+			t.Fatalf("row %d = %q, want param %q", row.Y, lines[row.Y], m.Home.paramRows()[idx].Label)
+		}
+	}
+}
+
+func TestHomeMouseClickSelectsJobAndTogglesParams(t *testing.T) {
+	m := testHomeModel(t)
+	view := m.homePageView()
+
+	m = clickAt(m, 5, view.Jobs[1].Y)
+	if m.Home.SelectedJob != 1 {
+		t.Fatalf("selected job = %d, want 1 after clicking the second row", m.Home.SelectedJob)
+	}
+	if m.Home.Focus != HomeFocusJobs {
+		t.Fatalf("focus = %v, want the job list", m.Home.Focus)
+	}
+
+	rows := m.Home.paramRows()
+	boolIdx := -1
+	startIdx := -1
+	for i, row := range rows {
+		switch row.Label {
+		case "抓取图片":
+			boolIdx = i
+		case "起始页":
+			startIdx = i
+		}
+	}
+	if boolIdx < 0 || startIdx < 0 {
+		t.Fatalf("param rows missing expected entries: %+v", rows)
+	}
+
+	before := m.Home.Jobs[1].Params.FetchImages
+	m = clickAt(m, 30, view.Params[boolIdx].Y)
+	if m.Home.Jobs[1].Params.FetchImages == before {
+		t.Fatal("clicking the 抓取图片 checkbox should toggle it")
+	}
+	if m.Home.Focus != HomeFocusParams || m.Home.ParamRow != boolIdx {
+		t.Fatalf("focus/row = %v/%d, want params/%d", m.Home.Focus, m.Home.ParamRow, boolIdx)
+	}
+
+	m = clickAt(m, 20, view.Params[startIdx].Y)
+	if !m.Home.ParamEditing() {
+		t.Fatal("clicking a numeric parameter should focus the inline input")
+	}
+}
+
+func TestHomeMouseClickSelectsCrawlMode(t *testing.T) {
+	m := testHomeModel(t)
+	view := m.homePageView()
+	modeRow := view.Params[0]
+	spans := homeModeOptionSpans()
+
+	for i, mode := range homeModeOptions {
+		x := modeRow.X + (spans[i][0]+spans[i][1])/2
+		m = clickAt(m, x, modeRow.Y)
+		if got := m.Home.Jobs[m.Home.SelectedJob].Params.Mode; got != mode {
+			t.Fatalf("clicking option %d (%s) -> mode %v, want %v", i, crawlModeShort(mode), got, mode)
+		}
+		if m.Home.Focus != HomeFocusParams || m.Home.ParamRow != 0 {
+			t.Fatalf("focus/row = %v/%d, want params/0", m.Home.Focus, m.Home.ParamRow)
+		}
+	}
+}
+
+// TestHomeModeRowGeometryMatchesFrame locks the option spans to the rendered
+// row so a click lands on the option the user sees.
+func TestHomeModeRowGeometryMatchesFrame(t *testing.T) {
+	m := testHomeModel(t)
+	m.Home.Focus = HomeFocusParams
+	m.Home.ParamRow = 0
+
+	lines := frameLines(viewString(m))
+	modeLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "类型") {
+			modeLine = i
+			break
+		}
+	}
+	if modeLine < 0 {
+		t.Fatal("mode row not found in the rendered frame")
+	}
+	plain := lines[modeLine]
+	spans := homeModeOptionSpans()
+	for i, mode := range homeModeOptions {
+		name := crawlModeShort(mode)
+		idx := strings.Index(plain, name)
+		if idx < 0 {
+			t.Fatalf("option %q missing from row %q", name, plain)
+		}
+		if col := lipgloss.Width(plain[:idx]); col != spans[i][0]+2 {
+			t.Fatalf("option %q starts at column %d, want %d (spans=%v)",
+				name, col, spans[i][0]+2, spans)
+		}
+	}
+}
+
+func TestHomeMouseWheelMovesSelection(t *testing.T) {
+	m := testHomeModel(t)
+	view := m.homePageView()
+
+	m = wheelAt(m, 5, view.Jobs[0].Y, tea.MouseWheelDown)
+	if m.Home.SelectedJob != 1 {
+		t.Fatalf("selected job = %d, want 1 after one wheel notch", m.Home.SelectedJob)
+	}
+	m = wheelAt(m, 5, view.Jobs[1].Y, tea.MouseWheelDown)
+	if m.Home.SelectedJob != 1 {
+		t.Fatalf("selection must clamp at the last job, got %d", m.Home.SelectedJob)
+	}
+	m = wheelAt(m, 5, view.Jobs[1].Y, tea.MouseWheelUp)
+	if m.Home.SelectedJob != 0 {
+		t.Fatalf("selected job = %d, want 0 after wheel up", m.Home.SelectedJob)
+	}
+
+	m.Home.Focus = HomeFocusParams
+	m.Home.ParamRow = 0
+	paramView := m.homePageView()
+	m = wheelAt(m, 20, paramView.Params[1].Y, tea.MouseWheelDown)
+	if m.Home.ParamRow != 1 {
+		t.Fatalf("param row = %d, want 1 after wheel over the panel", m.Home.ParamRow)
+	}
+}
+
+func TestJobLogDialogWheelScrolls(t *testing.T) {
+	m := testHomeModel(t)
+	m.Dialog = DialogJobLog
+	m.JobLog.Open(m.Home.Jobs[0])
+	lines := make([]string, 0, 100)
+	for i := 0; i < 100; i++ {
+		lines = append(lines, fmt.Sprintf("[Crawler] 第 %d 页完成", i+1))
+	}
+	m.JobLog.SetLines(lines)
+
+	body := m.panelBodyView(m.Width, m.Height)
+	m = wheelAt(m, body.X+2, body.Y+1, tea.MouseWheelDown)
+	if m.JobLog.Logs.Offset() == 0 {
+		t.Fatal("wheel over the job log body should scroll it")
 	}
 }

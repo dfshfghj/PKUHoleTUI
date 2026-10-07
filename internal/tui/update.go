@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -14,8 +13,6 @@ import (
 
 	"treehole/internal/client"
 	"treehole/internal/config"
-	"treehole/internal/crawler"
-	"treehole/internal/db"
 	"treehole/internal/models"
 
 	"charm.land/bubbles/v2/key"
@@ -81,6 +78,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case TickMsg:
+		if len(m.Home.Jobs) > 0 || m.Page == PageHome {
+			m.Home.RefreshJobs()
+		}
 		return m, tickCmd()
 
 	case LoginMsg:
@@ -93,29 +93,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case CrawlMsg:
+	case crawlerJobsLoadedMsg:
 		if msg.Error != nil {
-			log.Printf("[Crawler] 爬虫错误: 第 %d 页, %v", msg.Page, msg.Error)
-			m.Home.CrawlerState = CrawlerError
-			m.Home.HomeLastError = msg.Error.Error()
-			m.Home.CrawlerRun.Active = false
+			m.Home.LastError = msg.Error.Error()
+			return m, m.showToast("加载后台任务失败: " + msg.Error.Error())
+		}
+		m.Home.Jobs = msg.Jobs
+		m.Home.clampSelection()
+		m.Home.RefreshJobs()
+		return m, nil
+
+	case jobLogLoadedMsg:
+		if m.Dialog != DialogJobLog || msg.JobID != m.JobLog.JobID {
+			return m, nil
+		}
+		if msg.Error != nil {
+			m.JobLog.SetError(msg.Error)
 		} else {
-			m.Home.LastCrawlPage = msg.Page
-			m.Home.LastCrawlTime = msg.Duration
-			m.Home.LastCrawlSummary = msg.Summary
-			if m.Home.CrawlerState == CrawlerRunning {
-				if m.Home.CrawlMode == CrawlSequential || m.Home.CrawlMode == CrawlMonitor {
-					if !m.Home.CrawlerRun.Active {
-						if m.Home.CrawlMode == CrawlMonitor {
-							return m, crawlMonitorWithOptionsCmd(m.Client, m.Database, m.Home)
-						}
-						return m, crawlPageWithOptionsCmd(m.Client, m.Database, msg.Page+1, m.Home)
-					}
-					next, cmd := m.advanceCrawlerRun(msg)
-					return next, cmd
-				}
-				m.Home.CrawlerState = CrawlerStopped
-			}
+			m.JobLog.SetLines(msg.Lines)
 		}
 		return m, nil
 
@@ -458,6 +453,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				m.Dialog = DialogNone
 			}
 			return m, nil
+		case DialogJobLog:
+			if key.Matches(msg, shortcut.Escape) {
+				m.Dialog = DialogNone
+				return m, nil
+			}
+			return m, m.JobLog.Update(msg)
 		}
 	}
 
@@ -503,33 +504,122 @@ func (m Model) openSessionRecoveryDialog() (Model, bool) {
 
 func (m Model) handleHomeKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	action := m.Home.Update(msg)
-	switch action {
-	case HomeActionStartCrawler:
-		if m.Home.CrawlMode == CrawlMonitor {
-			m.Home.StartPage = 1
-			m.Home.PagesPerRound = m.Home.MonitorPages
-			m.Home.LoopEnabled = true
-			m.Home.PageDelaySeconds = 0
-			m.Home.LoopDelaySeconds = 0
-			return m.startCrawlerRun()
+	switch action.Kind {
+	case homeActionStartJob:
+		return m.startBackgroundJob(action.Index)
+	case homeActionStopJob:
+		return m.stopBackgroundJob(action.Index)
+	case homeActionSaveJobs:
+		return m.saveJobsStatus()
+	case homeActionDeleteJob:
+		return m.saveJobsStatus()
+	case homeActionDeleteConfirm:
+		cmd := m.showToast("再按一次 x 确认删除该任务")
+		return m, cmd
+	case homeActionOpenJobLog:
+		if action.Index >= 0 && action.Index < len(m.Home.Jobs) {
+			job := m.Home.Jobs[action.Index]
+			m.Dialog = DialogJobLog
+			m.JobLog.Open(job)
+			return m, loadJobLogCmd(job.ID)
 		}
-		if m.Home.CrawlMode == CrawlFetchImages {
-			return m, crawlFetchImagesCmd(m.Client, m.Database, m.Home.ConvertWebp)
-		}
-		if m.Home.CrawlMode == CrawlFetchThumbnails {
-			return m, crawlFetchThumbnailsCmd(m.Client, m.Home.ThumbnailStartID, m.Home.ThumbnailEndID, m.Home.ConvertWebp)
-		}
-		m.Home.StartPage = 1
-		m.Home.PagesPerRound = 0
-		m.Home.LoopEnabled = false
-		m.Home.PageDelaySeconds = 0
-		m.Home.LoopDelaySeconds = 60
-		return m.startCrawlerRun()
-	case HomeActionStopCrawler:
-		log.Printf("[Crawler] 爬虫已手动停止")
-		m.Home.CrawlerRun.Active = false
+	case homeActionRefresh:
+		m.Home.RefreshJobs()
+		return m, nil
 	}
 	return m, nil
+}
+
+// startBackgroundJob launches the job as a detached process and persists the
+// registry so the job survives a TUI restart.
+func (m Model) startBackgroundJob(index int) (Model, tea.Cmd) {
+	if index < 0 || index >= len(m.Home.Jobs) {
+		return m, nil
+	}
+	job := &m.Home.Jobs[index]
+	if job.State() == JobRunning || job.State() == JobStopping {
+		return m, m.showToast("任务已在运行中")
+	}
+	pid, err := launchJobProcess(*job)
+	if err != nil {
+		m.Home.LastError = err.Error()
+		return m, m.showToast("启动失败: " + err.Error())
+	}
+	job.PID = pid
+	job.StartedAt = time.Now()
+	job.Stopping = false
+	m.Home.LastError = ""
+	message := fmt.Sprintf("任务已启动 (pid %d)", pid)
+	if goRunTempBinary() {
+		message += " · go run 临时二进制，建议使用构建产物"
+	}
+	cmds := []tea.Cmd{m.showToast(message)}
+	if err := saveCrawlerJobs(m.Home.Jobs); err != nil {
+		cmds = append(cmds, m.showToast("保存任务失败: "+err.Error()))
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) stopBackgroundJob(index int) (Model, tea.Cmd) {
+	if index < 0 || index >= len(m.Home.Jobs) {
+		return m, nil
+	}
+	job := &m.Home.Jobs[index]
+	if err := stopCrawlerJob(*job); err != nil {
+		return m, m.showToast("停止失败: " + err.Error())
+	}
+	job.Stopping = true
+	cmd := m.showToast(fmt.Sprintf("已发送停止信号 (pid %d)", job.PID))
+	return m, cmd
+}
+
+// saveJobsStatus persists the registry and reports the outcome as a toast.
+func (m Model) saveJobsStatus() (Model, tea.Cmd) {
+	var cmd tea.Cmd
+	if err := saveCrawlerJobs(m.Home.Jobs); err != nil {
+		m.Home.LastError = err.Error()
+		cmd = m.showToast("保存任务失败: " + err.Error())
+	} else {
+		cmd = m.showToast("任务已保存")
+	}
+	return m, cmd
+}
+
+// loadCrawlerJobsCmd reads the persisted background jobs.
+func loadCrawlerJobsCmd() tea.Cmd {
+	return func() tea.Msg {
+		jobs, err := loadCrawlerJobs()
+		return crawlerJobsLoadedMsg{Jobs: jobs, Error: err}
+	}
+}
+
+// loadJobLogCmd tails the job's log file.
+func loadJobLogCmd(jobID string) tea.Cmd {
+	return func() tea.Msg {
+		lines, err := readJobLogLines(jobID, 500)
+		if err != nil {
+			return jobLogLoadedMsg{JobID: jobID, Error: err}
+		}
+		return jobLogLoadedMsg{JobID: jobID, Lines: lines}
+	}
+}
+
+func readJobLogLines(jobID string, limit int) ([]string, error) {
+	tail, err := readFileTail(jobLogPathByID(jobID), 256*1024)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimRight(tail, "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return nil, nil
+	}
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+	return lines, nil
 }
 
 func (m Model) handleScheduleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
@@ -1314,145 +1404,6 @@ func (m Model) handleTagsDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 	m.TagsDialog.Update(msg)
 	return m, nil
-}
-
-func crawlPageCmd(c *client.Client, database *db.Database, page int) tea.Cmd {
-	options := NewHomePageModel()
-	return crawlPageWithOptionsCmd(c, database, page, options)
-}
-
-func crawlPageWithOptionsCmd(c *client.Client, database *db.Database, page int, options HomePageModel) tea.Cmd {
-	return func() tea.Msg {
-		startTime := time.Now()
-		result, err := crawler.FetchAndSave(c, database, page, options.SaveJSON, options.PostsPerRequest, options.CommentsPerPost, options.FetchImages, options.ConvertWebp)
-		duration := time.Since(startTime)
-		if err != nil {
-			return CrawlMsg{Error: err, Page: page}
-		}
-		if options.SaveJSON {
-			if err := crawler.SaveRawResponsesToFile(); err != nil {
-				return CrawlMsg{Error: err, Page: page}
-			}
-		}
-		return CrawlMsg{
-			Page:         page,
-			Duration:     duration,
-			Summary:      fmt.Sprintf("第%d页：帖子 %d，评论 %d", page, result.PostCount, result.CommentCount),
-			PostCount:    result.PostCount,
-			CommentCount: result.CommentCount,
-		}
-	}
-}
-
-func crawlMonitorCmd(c *client.Client, database *db.Database, monitorPages int) tea.Cmd {
-	options := NewHomePageModel()
-	options.MonitorPages = monitorPages
-	return crawlMonitorWithOptionsCmd(c, database, options)
-}
-
-func crawlMonitorWithOptionsCmd(c *client.Client, database *db.Database, options HomePageModel) tea.Cmd {
-	return func() tea.Msg {
-		startTime := time.Now()
-		totalPosts := 0
-		totalComments := 0
-		for page := 1; page <= options.MonitorPages; page++ {
-			result, err := crawler.FetchAndSave(c, database, page, options.SaveJSON, options.PostsPerRequest, options.CommentsPerPost, options.FetchImages, options.ConvertWebp)
-			if err != nil {
-				log.Printf("[Crawler] 监控模式第 %d 页抓取失败: %v", page, err)
-				continue
-			}
-			totalPosts += result.PostCount
-			totalComments += result.CommentCount
-		}
-		if options.SaveJSON {
-			if err := crawler.SaveRawResponsesToFile(); err != nil {
-				return CrawlMsg{Error: err, Page: options.MonitorPages}
-			}
-		}
-		return CrawlMsg{
-			Page:         options.MonitorPages,
-			Duration:     time.Since(startTime),
-			Summary:      fmt.Sprintf("监控前%d页：帖子 %d，评论 %d", options.MonitorPages, totalPosts, totalComments),
-			PostCount:    totalPosts,
-			CommentCount: totalComments,
-		}
-	}
-}
-
-func (m Model) startCrawlerRun() (Model, tea.Cmd) {
-	m.Home.CrawlerRun = CrawlerRunState{
-		Active:        true,
-		StartPage:     m.Home.StartPage,
-		PagesPerRound: m.Home.PagesPerRound,
-		Loop:          m.Home.LoopEnabled,
-		LoopDelay:     m.Home.LoopDelaySeconds,
-		PageDelay:     m.Home.PageDelaySeconds,
-	}
-	return m, crawlPageAfterDelayCmd(m.Client, m.Database, m.Home.StartPage, m.Home, 0)
-}
-
-func (m Model) advanceCrawlerRun(msg CrawlMsg) (Model, tea.Cmd) {
-	if !m.Home.CrawlerRun.Active {
-		m.Home.CrawlerState = CrawlerStopped
-		return m, nil
-	}
-
-	m.Home.CrawlerRun.PagesCrawled++
-	m.Home.CrawlerRun.RoundPosts += msg.PostCount
-	m.Home.CrawlerRun.RoundComments += msg.CommentCount
-
-	if m.Home.CrawlerRun.PagesPerRound > 0 && m.Home.CrawlerRun.PagesCrawled >= m.Home.CrawlerRun.PagesPerRound {
-		m.Home.LastCrawlSummary = fmt.Sprintf(
-			"第%d轮完成：%d页，帖子 %d，评论 %d",
-			m.Home.CrawlerRun.Round+1,
-			m.Home.CrawlerRun.PagesCrawled,
-			m.Home.CrawlerRun.RoundPosts,
-			m.Home.CrawlerRun.RoundComments,
-		)
-		if !m.Home.CrawlerRun.Loop {
-			m.Home.CrawlerRun.Active = false
-			m.Home.CrawlerState = CrawlerStopped
-			return m, nil
-		}
-		m.Home.CrawlerRun.Round++
-		m.Home.CrawlerRun.PagesCrawled = 0
-		m.Home.CrawlerRun.RoundPosts = 0
-		m.Home.CrawlerRun.RoundComments = 0
-		return m, crawlPageAfterDelayCmd(m.Client, m.Database, m.Home.CrawlerRun.StartPage, m.Home, m.Home.CrawlerRun.LoopDelay)
-	}
-
-	return m, crawlPageAfterDelayCmd(m.Client, m.Database, msg.Page+1, m.Home, m.Home.CrawlerRun.PageDelay)
-}
-
-func crawlPageAfterDelayCmd(c *client.Client, database *db.Database, page int, options HomePageModel, delaySeconds int) tea.Cmd {
-	return func() tea.Msg {
-		if delaySeconds > 0 {
-			time.Sleep(time.Duration(delaySeconds) * time.Second)
-		}
-		return crawlPageWithOptionsCmd(c, database, page, options)()
-	}
-}
-
-func crawlFetchImagesCmd(c *client.Client, database *db.Database, convertWebp bool) tea.Cmd {
-	return func() tea.Msg {
-		startTime := time.Now()
-		crawler.FetchImagesFromDB(c, database, convertWebp)
-		return CrawlMsg{Duration: time.Since(startTime), Summary: "数据库图片补齐完成"}
-	}
-}
-
-func crawlFetchThumbnailsCmd(c *client.Client, startID, endID int, convertWebp bool) tea.Cmd {
-	return func() tea.Msg {
-		startTime := time.Now()
-		downloaded, skipped, err := crawler.FetchThumbnailsByIDRange(c, startID, endID, convertWebp)
-		if err != nil {
-			return CrawlMsg{Error: err}
-		}
-		return CrawlMsg{
-			Duration: time.Since(startTime),
-			Summary:  fmt.Sprintf("缩略图完成：downloaded=%d skipped=%d range=%d-%d", downloaded, skipped, startID, endID),
-		}
-	}
 }
 
 func loadPostsCmd(provider PostsProvider, cursor, limit, label int) tea.Cmd {

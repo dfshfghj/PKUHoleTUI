@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/pflag"
@@ -136,46 +135,44 @@ func (m Model) executeCrawlerCommand(args []string) (Model, tea.Cmd) {
 	if err != nil {
 		return m, m.showToast("crawler 参数错误: " + err.Error())
 	}
-	if m.Home.CrawlerState == CrawlerRunning {
-		return m, m.showToast("crawler 已在运行中")
-	}
-
+	params := defaultCrawlerParams()
+	params.ConvertWebp = cfg.convertWebp
+	name := "命令行任务"
 	switch cfg.subcommand {
 	case "fetch-images":
-		m.Home.CrawlMode = CrawlFetchImages
-		m.Home.ConvertWebp = cfg.convertWebp
-		m.Home.CrawlerState = CrawlerRunning
-		m.Home.CrawlerStart = time.Now()
-		m.Home.HomeLastError = ""
-		return m, crawlFetchImagesCmd(m.Client, m.Database, cfg.convertWebp)
+		params.Mode = CrawlFetchImages
+		name = "补齐图片"
 	case "fetch-thumbnails":
-		m.Home.CrawlMode = CrawlFetchThumbnails
-		m.Home.ThumbnailStartID = cfg.thumbnailStart
-		m.Home.ThumbnailEndID = cfg.thumbnailEnd
-		m.Home.ConvertWebp = cfg.convertWebp
-		m.Home.CrawlerState = CrawlerRunning
-		m.Home.CrawlerStart = time.Now()
-		m.Home.HomeLastError = ""
-		return m, crawlFetchThumbnailsCmd(m.Client, cfg.thumbnailStart, cfg.thumbnailEnd, cfg.convertWebp)
+		params.Mode = CrawlFetchThumbnails
+		params.ThumbnailStartID = cfg.thumbnailStart
+		params.ThumbnailEndID = cfg.thumbnailEnd
+		name = fmt.Sprintf("缩略图 %d-%d", cfg.thumbnailStart, cfg.thumbnailEnd)
 	default:
-		m.Home.CrawlMode = CrawlSequential
+		params.Mode = CrawlSequential
 		if cfg.loop && cfg.pages > 0 && cfg.startPage == 1 {
-			m.Home.CrawlMode = CrawlMonitor
-			m.Home.MonitorPages = cfg.pages
+			params.Mode = CrawlMonitor
+			params.MonitorPages = cfg.pages
+			name = fmt.Sprintf("监控前%d页", cfg.pages)
 		}
-		m.Home.StartPage = cfg.startPage
-		m.Home.PagesPerRound = cfg.pages
-		m.Home.LoopEnabled = cfg.loop
-		m.Home.LoopDelaySeconds = cfg.loopDelay
-		m.Home.PageDelaySeconds = cfg.pageDelay
-		m.Home.FetchImages = cfg.fetchImages
-		m.Home.SaveJSON = cfg.saveRawJSON
-		m.Home.PostsPerRequest = cfg.postBatchSize
-		m.Home.CommentsPerPost = cfg.commentLimit
-		m.Home.ConvertWebp = cfg.convertWebp
-		m.Home.CrawlerState = CrawlerRunning
-		m.Home.CrawlerStart = time.Now()
-		m.Home.HomeLastError = ""
-		return m.startCrawlerRun()
+		params.StartPage = cfg.startPage
+		params.Pages = cfg.pages
+		params.Loop = cfg.loop
+		params.LoopDelaySeconds = cfg.loopDelay
+		params.PageDelaySeconds = cfg.pageDelay
+		params.FetchImages = cfg.fetchImages
+		params.SaveRawJSON = cfg.saveRawJSON
+		params.PostBatchSize = cfg.postBatchSize
+		params.CommentLimit = cfg.commentLimit
 	}
+
+	m.Home.Jobs = append(m.Home.Jobs, newCrawlerJob(name, params))
+	m.Home.SelectedJob = len(m.Home.Jobs) - 1
+	m.Home.Focus = HomeFocusJobs
+	if m.Page != PageHome {
+		next, pageCmd := m.switchPage(PageHome)
+		m = next
+		started, startCmd := m.startBackgroundJob(m.Home.SelectedJob)
+		return started, tea.Batch(pageCmd, startCmd)
+	}
+	return m.startBackgroundJob(m.Home.SelectedJob)
 }

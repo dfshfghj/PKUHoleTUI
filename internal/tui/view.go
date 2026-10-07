@@ -135,6 +135,8 @@ func (m Model) renderScreen(width, height int) (string, []imagePlacement) {
 		body, placements = m.renderImagePanelScreen(width, height)
 	case DialogCourseDetail:
 		body, placements = m.renderCourseDetailPanelScreen(width, height)
+	case DialogJobLog:
+		body, placements = m.renderPanelScreenWithStyle(width, height, m.renderJobLogPanelContent, true)
 	default:
 		var base string
 		var p []imagePlacement
@@ -267,6 +269,13 @@ func (m Model) renderPanelScreenWithStyle(width, height int, renderContent func(
 
 func (m Model) renderToolsPanelContent(panelW, panelH int) string {
 	return m.ToolsDialog.View(
+		maxInt(20, panelW-panelContentStyle.GetHorizontalFrameSize()),
+		maxInt(8, panelH-panelContentStyle.GetVerticalFrameSize()),
+	)
+}
+
+func (m Model) renderJobLogPanelContent(panelW, panelH int) string {
+	return m.JobLog.View(
 		maxInt(20, panelW-panelContentStyle.GetHorizontalFrameSize()),
 		maxInt(8, panelH-panelContentStyle.GetVerticalFrameSize()),
 	)
@@ -578,7 +587,10 @@ func (m Model) currentPageLabel() string {
 	case PageDashboard:
 		return "TreeHole"
 	case PageHome:
-		return m.Home.modeLabel()
+		if running, total := m.Home.jobCounts(); total > 0 {
+			return fmt.Sprintf("任务 %d/%d", running, total)
+		}
+		return "任务"
 	case PagePosts:
 		if m.Posts.ShowPostDetail && m.Posts.CurrentPost != nil {
 			return fmt.Sprintf("#%d", m.Posts.CurrentPost.Pid)
@@ -660,6 +672,8 @@ func (m Model) dialogStatusSummary() string {
 		return "Tab: 切换输入区 | Ctrl+S: 提交 | Esc: 取消"
 	case DialogTags:
 		return "Enter: 选择标签 | c: 清除筛选 | Esc: 关闭"
+	case DialogJobLog:
+		return "r: 刷新 | Esc: 关闭"
 	case DialogCourseDetail:
 		return ""
 	default:
@@ -668,24 +682,16 @@ func (m Model) dialogStatusSummary() string {
 }
 
 func (m Model) homeStatusSummary() string {
-	switch m.Home.CrawlerState {
-	case CrawlerRunning:
-		elapsed := "0s"
-		if !m.Home.CrawlerStart.IsZero() {
-			elapsed = time.Since(m.Home.CrawlerStart).Round(time.Second).String()
-		}
-		progress := "等待首轮抓取"
-		if m.Home.LastCrawlPage > 0 {
-			progress = fmt.Sprintf("已抓到第%d页", m.Home.LastCrawlPage)
-		}
-		return fmt.Sprintf("%s | 已运行 %s", progress, elapsed)
-	case CrawlerError:
-		if m.Home.HomeLastError != "" {
-			return "爬虫错误: " + m.Home.HomeLastError
-		}
-		return "爬虫错误"
+	running, total := m.Home.jobCounts()
+	switch {
+	case m.Home.LastError != "":
+		return "错误: " + m.Home.LastError
+	case total == 0:
+		return "暂无后台任务 | n 新建"
+	case running == 0:
+		return fmt.Sprintf("后台任务: %d 个，均未运行", total)
 	default:
-		return "爬虫已停止"
+		return fmt.Sprintf("后台任务: %d 运行中 / 共 %d", running, total)
 	}
 }
 
@@ -870,10 +876,7 @@ func (m Model) helpContextTitle() string {
 		return "Dashboard"
 	}
 	if m.Page == PageHome {
-		if m.Home.CrawlerState == CrawlerRunning {
-			return "同步页"
-		}
-		return "同步页"
+		return "后台任务"
 	}
 	if m.Posts.Searching {
 		return "搜索"

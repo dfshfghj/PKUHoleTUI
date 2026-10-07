@@ -127,12 +127,12 @@ type ShortCut struct {
 	ConfigGo        key.Binding
 	ConfigDocBottom key.Binding
 
-	HomeModeCycle     key.Binding
-	HomeFetchImages   key.Binding
-	HomeSaveJSON      key.Binding
-	HomeConvertWebp   key.Binding
-	HomeThumbnailPrev key.Binding
-	HomeThumbnailNext key.Binding
+	HomeNewJob       key.Binding
+	HomeJobStartStop key.Binding
+	HomeJobDelete    key.Binding
+	HomeJobLog       key.Binding
+	HomeJobEdit      key.Binding
+	HomeJobSave      key.Binding
 }
 
 func newKeyBinding(keys []string, helpKey, desc string) key.Binding {
@@ -265,12 +265,12 @@ var shortcut = ShortCut{
 	ConfigGo:        newKeyBinding([]string{"g"}, "gg", "文档顶部"),
 	ConfigDocBottom: newKeyBinding([]string{"G"}, "G", "文档底部"),
 
-	HomeModeCycle:     newKeyBinding([]string{"m"}, "m", "切换模式"),
-	HomeFetchImages:   newKeyBinding([]string{"i"}, "i", "抓图开关"),
-	HomeSaveJSON:      newKeyBinding([]string{"j"}, "j", "保存JSON"),
-	HomeConvertWebp:   newKeyBinding([]string{"w"}, "w", "转换WebP"),
-	HomeThumbnailPrev: newKeyBinding([]string{"["}, "[", "缩小缩略图起点"),
-	HomeThumbnailNext: newKeyBinding([]string{"]"}, "]", "增大缩略图起点"),
+	HomeNewJob:       newKeyBinding([]string{"n"}, "n", "新建任务"),
+	HomeJobStartStop: newKeyBinding([]string{"s"}, "s", "启动/停止任务"),
+	HomeJobDelete:    newKeyBinding([]string{"x"}, "x", "删除任务"),
+	HomeJobLog:       newKeyBinding([]string{"L"}, "L", "任务日志"),
+	HomeJobEdit:      newKeyBinding([]string{"enter"}, "Enter", "编辑参数"),
+	HomeJobSave:      newKeyBinding([]string{"ctrl+s"}, "Ctrl+S", "保存任务"),
 }
 
 func helpItemsFromBindings(bindings ...key.Binding) []helpItem {
@@ -315,13 +315,15 @@ func (m Model) contextualHelpItems() []helpItem {
 		bindings = append(bindings,
 			keymap.Direct.Tab,
 			keymap.Direct.ShiftTab,
-			keymap.Direct.ModeNumbers,
-			keymap.Direct.LeftRight,
-			keymap.Direct.StartStop,
+			shortcut.HomeJobEdit,
+			shortcut.HomeNewJob,
+			shortcut.HomeJobStartStop,
+			shortcut.HomeJobDelete,
+			shortcut.HomeJobLog,
+			shortcut.HomeJobSave,
+			newKeyBinding([]string{"up", "down", "k", "j"}, "↑↓/kj", "选择任务/参数"),
+			newKeyBinding([]string{"left", "right", "h", "l"}, "←→/hl", "调整参数"),
 		)
-		if m.Home.CrawlerState != CrawlerRunning {
-			bindings = append(bindings, keymap.Direct.ModeCycle)
-		}
 		bindings = append(bindings, globalTools...)
 	case m.Page == PageSchedule || m.Page == PageScores:
 		bindings = append(bindings, keymap.Direct.Tab, keymap.Direct.ShiftTab, keymap.Direct.Refresh)
@@ -459,6 +461,12 @@ func (m Model) handleKeymapPrefix(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 	}
 	if m.LeaderPending {
 		return m.handleLeaderKey(msg)
+	}
+	// The sync page's parameter panel uses Space to toggle values, so it must
+	// not be swallowed by the global leader prefix.
+	if m.Page == PageHome && m.Dialog == DialogNone && m.Home.Focus != HomeFocusJobs &&
+		key.Matches(msg, keymap.Prefix.Leader) {
+		return m, nil, false
 	}
 	if !m.acceptsLeaderAndCommand() {
 		return m, nil, false

@@ -1,8 +1,12 @@
 package tui
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"treehole/internal/client"
 	"treehole/internal/config"
@@ -20,9 +24,6 @@ func newTestModel() Model {
 	posts.CommentViewport = &cv
 	posts.PostPerPage = 20
 	home := NewHomePageModel()
-	home.CrawlerState = CrawlerStopped
-	home.CrawlMode = CrawlSequential
-	home.MonitorPages = 3
 	return Model{
 		Page:      PagePosts,
 		TabCursor: 1,
@@ -225,33 +226,54 @@ func TestUpdateSearchPostsMsg(t *testing.T) {
 	}
 }
 
-func TestUpdateCrawlMsgError(t *testing.T) {
+func TestUpdateCrawlerJobsLoadedMsg(t *testing.T) {
 	m := newTestModel()
-	m.Home.CrawlerState = CrawlerRunning
 
-	result, _ := m.Update(CrawlMsg{Error: errTest, Page: 1})
+	job := newCrawlerJob("全量循环", CrawlerParams{Mode: CrawlSequential, StartPage: 3})
+	result, _ := m.Update(crawlerJobsLoadedMsg{Jobs: []CrawlerJob{job}})
 	m = result.(Model)
 
-	if m.Home.CrawlerState != CrawlerError {
-		t.Errorf("CrawlerState = %v, want CrawlerError", m.Home.CrawlerState)
+	if len(m.Home.Jobs) != 1 || m.Home.Jobs[0].Name != "全量循环" {
+		t.Fatalf("jobs = %+v, want the loaded job", m.Home.Jobs)
 	}
-	if m.Home.HomeLastError != "test error" {
-		t.Errorf("HomeLastError = %s, want 'test error'", m.Home.HomeLastError)
+	if m.Home.SelectedJob != 0 {
+		t.Errorf("SelectedJob = %d, want 0", m.Home.SelectedJob)
 	}
 }
 
-func TestUpdateCrawlMsgSuccessReturnsCmd(t *testing.T) {
+func TestUpdateCrawlerJobsLoadedMsgError(t *testing.T) {
 	m := newTestModel()
-	m.Home.CrawlerState = CrawlerRunning
 
-	result, cmd := m.Update(CrawlMsg{Page: 3})
+	result, _ := m.Update(crawlerJobsLoadedMsg{Error: errTest})
 	m = result.(Model)
 
-	if cmd == nil {
-		t.Error("Expected a cmd to continue crawling")
+	if len(m.Home.Jobs) != 0 {
+		t.Errorf("jobs = %+v, want none on load error", m.Home.Jobs)
 	}
-	if m.Home.LastCrawlPage != 3 {
-		t.Errorf("LastCrawlPage = %d, want 3", m.Home.LastCrawlPage)
+	if m.Home.LastError != "test error" {
+		t.Errorf("LastError = %q, want %q", m.Home.LastError, "test error")
+	}
+}
+
+func TestUpdateJobLogLoadedMsgOnlyAppliesToOpenDialog(t *testing.T) {
+	m := newTestModel()
+	m.Home.Jobs = []CrawlerJob{newCrawlerJob("任务", defaultCrawlerParams())}
+	m.Dialog = DialogJobLog
+	m.JobLog.Open(m.Home.Jobs[0])
+
+	result, _ := m.Update(jobLogLoadedMsg{JobID: m.Home.Jobs[0].ID, Lines: []string{"日志行"}})
+	m = result.(Model)
+	if len(m.JobLog.Logs.Lines()) != 1 || m.JobLog.Logs.Lines()[0] != "日志行" {
+		t.Fatalf("lines = %v, want the loaded job log", m.JobLog.Logs.Lines())
+	}
+
+	other := newCrawlerJob("其他", defaultCrawlerParams())
+	result, _ = m.Update(jobLogLoadedMsg{JobID: other.ID, Lines: []string{"别的日志"}})
+	m = result.(Model)
+	for _, line := range m.JobLog.Logs.Lines() {
+		if strings.Contains(line, "别的日志") {
+			t.Fatal("job log for another job must not replace the open dialog's content")
+		}
 	}
 }
 
@@ -495,59 +517,72 @@ func TestCommandSearchAndClearPostsFilters(t *testing.T) {
 	}
 }
 
-func TestExecuteCrawlerCommandParsesShellStyleFlags(t *testing.T) {
+func TestExecuteCrawlerCommandCreatesAndStartsJob(t *testing.T) {
+	useTempWorkingDir(t, t.TempDir())
+	installFakeJobLauncher(t)
 	m := newTestModel()
-	m.Client = &client.Client{}
 
 	result, cmd := m.executeCommand(`crawler --start-page 3 --pages 5 --loop --loop-delay 7 --page-delay 2 --fetch-images --save-raw-json --post-batch-size 80 --comment-limit 90`)
 	if cmd == nil {
-		t.Fatal(":crawler should trigger crawl command")
+		t.Fatal(":crawler should start the new background job")
 	}
-	if result.Home.CrawlerState != CrawlerRunning {
-		t.Fatalf("crawler state = %v, want running", result.Home.CrawlerState)
+	if result.Page != PageHome {
+		t.Fatalf("page = %v, want PageHome", result.Page)
 	}
-	if !result.Home.CrawlerRun.Active {
-		t.Fatal("crawler run state should be active")
+	if len(result.Home.Jobs) != 1 {
+		t.Fatalf("jobs = %d, want 1", len(result.Home.Jobs))
 	}
-	if result.Home.StartPage != 3 || result.Home.CrawlerRun.StartPage != 3 {
-		t.Fatalf("start page = %d/%d, want 3", result.Home.StartPage, result.Home.CrawlerRun.StartPage)
+	job := result.Home.Jobs[0]
+	p := job.Params
+	if p.Mode != CrawlSequential {
+		t.Fatalf("mode = %v, want sequential", p.Mode)
 	}
-	if result.Home.PagesPerRound != 5 || result.Home.CrawlerRun.PagesPerRound != 5 {
-		t.Fatalf("pages per round = %d/%d, want 5", result.Home.PagesPerRound, result.Home.CrawlerRun.PagesPerRound)
+	if p.StartPage != 3 || p.Pages != 5 {
+		t.Fatalf("start/pages = %d/%d, want 3/5", p.StartPage, p.Pages)
 	}
-	if !result.Home.LoopEnabled || !result.Home.CrawlerRun.Loop {
-		t.Fatal("loop should be enabled")
+	if !p.Loop || p.LoopDelaySeconds != 7 || p.PageDelaySeconds != 2 {
+		t.Fatalf("loop=%v delay=%d/%d, want true 7/2", p.Loop, p.LoopDelaySeconds, p.PageDelaySeconds)
 	}
-	if result.Home.PageDelaySeconds != 2 || result.Home.CrawlerRun.PageDelay != 2 {
-		t.Fatalf("page delay = %d/%d, want 2", result.Home.PageDelaySeconds, result.Home.CrawlerRun.PageDelay)
-	}
-	if result.Home.LoopDelaySeconds != 7 || result.Home.CrawlerRun.LoopDelay != 7 {
-		t.Fatalf("loop delay = %d/%d, want 7", result.Home.LoopDelaySeconds, result.Home.CrawlerRun.LoopDelay)
-	}
-	if !result.Home.FetchImages || !result.Home.SaveJSON {
+	if !p.FetchImages || !p.SaveRawJSON {
 		t.Fatal("fetch-images and save-raw-json should be enabled")
 	}
-	if result.Home.PostsPerRequest != 80 || result.Home.CommentsPerPost != 90 {
-		t.Fatalf("batch/comment = %d/%d, want 80/90", result.Home.PostsPerRequest, result.Home.CommentsPerPost)
+	if p.PostBatchSize != 80 || p.CommentLimit != 90 {
+		t.Fatalf("batch/comment = %d/%d, want 80/90", p.PostBatchSize, p.CommentLimit)
+	}
+	if job.PID <= 0 || job.State() != JobRunning {
+		t.Fatalf("job pid/state = %d/%v, want a running background process", job.PID, job.State())
+	}
+	loaded, err := loadCrawlerJobs()
+	if err != nil || len(loaded) != 1 {
+		t.Fatalf("jobs should be persisted after start, got %d jobs err=%v", len(loaded), err)
 	}
 }
 
 func TestExecuteCrawlerCommandSupportsFetchThumbnails(t *testing.T) {
+	useTempWorkingDir(t, t.TempDir())
+	installFakeJobLauncher(t)
 	m := newTestModel()
-	m.Client = &client.Client{}
 
 	result, cmd := m.executeCommand(`crawler fetch-thumbnails --start-id 10 --end-id 20 --convert-webp`)
 	if cmd == nil {
-		t.Fatal(":crawler fetch-thumbnails should trigger command")
+		t.Fatal(":crawler fetch-thumbnails should start the background job")
 	}
-	if result.Home.CrawlMode != CrawlFetchThumbnails {
-		t.Fatalf("crawl mode = %v, want fetch-thumbnails", result.Home.CrawlMode)
+	if len(result.Home.Jobs) != 1 {
+		t.Fatalf("jobs = %d, want 1", len(result.Home.Jobs))
 	}
-	if result.Home.ThumbnailStartID != 10 || result.Home.ThumbnailEndID != 20 {
-		t.Fatalf("thumbnail range = %d-%d, want 10-20", result.Home.ThumbnailStartID, result.Home.ThumbnailEndID)
+	job := result.Home.Jobs[0]
+	if job.Params.Mode != CrawlFetchThumbnails {
+		t.Fatalf("mode = %v, want fetch-thumbnails", job.Params.Mode)
 	}
-	if !result.Home.ConvertWebp {
+	if job.Params.ThumbnailStartID != 10 || job.Params.ThumbnailEndID != 20 {
+		t.Fatalf("thumbnail range = %d-%d, want 10-20", job.Params.ThumbnailStartID, job.Params.ThumbnailEndID)
+	}
+	if !job.Params.ConvertWebp {
 		t.Fatal("convert-webp should be enabled")
+	}
+	want := []string{"crawler", "fetch-thumbnails", "--start-id", "10", "--end-id", "20", "--convert-webp=true"}
+	if got := jobArgs(job); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("jobArgs = %v, want %v", got, want)
 	}
 }
 
@@ -729,84 +764,267 @@ func TestHandleKeyTabSwitchBack(t *testing.T) {
 	}
 }
 
-func TestHandleHomeKeyStartCrawler(t *testing.T) {
+func TestHandleHomeKeyStartsAndStopsJob(t *testing.T) {
+	useTempWorkingDir(t, t.TempDir())
+	installFakeJobLauncher(t)
 	m := newTestModel()
 	m.Page = PageHome
-	m.Home.CrawlerState = CrawlerStopped
-	m.Home.HomeButtonIdx = 0
+	m.Home.Jobs = []CrawlerJob{newCrawlerJob("测试任务", defaultCrawlerParams())}
+	m.Home.SelectedJob = 0
+	m.Home.Focus = HomeFocusJobs
 
-	result, cmd := m.handleHomeKey(keyCode(tea.KeyEnter))
-	m = result
+	m, _ = m.handleHomeKey(keyPress('s'))
+	pid := m.Home.Jobs[0].PID
+	if pid <= 0 {
+		t.Fatal("s should launch the background job and record its pid")
+	}
+	if m.Home.Jobs[0].State() != JobRunning {
+		t.Fatalf("state = %v, want running", m.Home.Jobs[0].State())
+	}
+	loaded, err := loadCrawlerJobs()
+	if err != nil || len(loaded) != 1 || loaded[0].PID != pid {
+		t.Fatalf("started job should be persisted, got %+v err=%v", loaded, err)
+	}
 
-	if m.Home.CrawlerState != CrawlerRunning {
-		t.Errorf("CrawlerState = %v, want CrawlerRunning", m.Home.CrawlerState)
+	m, _ = m.handleHomeKey(keyPress('s'))
+	if !m.Home.Jobs[0].Stopping {
+		t.Fatal("pressing s again should send SIGTERM and mark the job stopping")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for jobAlive(pid) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if jobAlive(pid) {
+		t.Fatal("job process should exit after SIGTERM")
+	}
+	m.Home.RefreshJobs()
+	if m.Home.Jobs[0].State() != JobFinished {
+		t.Fatalf("state = %v, want finished after the process exits", m.Home.Jobs[0].State())
+	}
+}
+
+func TestHandleHomeKeyNewJobFocusesParams(t *testing.T) {
+	m := newTestModel()
+	m.Page = PageHome
+	m.Home.Focus = HomeFocusJobs
+
+	m, _ = m.handleHomeKey(keyPress('n'))
+	if len(m.Home.Jobs) != 1 {
+		t.Fatalf("jobs = %d, want 1 after n", len(m.Home.Jobs))
+	}
+	if m.Home.SelectedJob != 0 || m.Home.Focus != HomeFocusParams {
+		t.Fatalf("selection/focus = %d/%v, want 0/params", m.Home.SelectedJob, m.Home.Focus)
+	}
+	if m.Home.Jobs[0].Name != "新任务 1" {
+		t.Fatalf("job name = %q, want 新任务 1", m.Home.Jobs[0].Name)
+	}
+}
+
+func TestHandleHomeKeyDeleteRequiresConfirmation(t *testing.T) {
+	useTempWorkingDir(t, t.TempDir())
+	m := newTestModel()
+	m.Page = PageHome
+	m.Home.Jobs = []CrawlerJob{
+		newCrawlerJob("一", defaultCrawlerParams()),
+		newCrawlerJob("二", defaultCrawlerParams()),
+	}
+	m.Home.SelectedJob = 1
+	m.Home.Focus = HomeFocusJobs
+
+	m, _ = m.handleHomeKey(keyPress('x'))
+	if len(m.Home.Jobs) != 2 {
+		t.Fatal("first x must not delete the job")
+	}
+	if m.Home.PendingDeleteID != m.Home.Jobs[1].ID {
+		t.Fatal("first x should arm the delete confirmation")
+	}
+	// Expired confirmation must re-arm instead of deleting.
+	m.Home.PendingDeleteAt = time.Now().Add(-deleteConfirmWindow - time.Second)
+	m, _ = m.handleHomeKey(keyPress('x'))
+	if len(m.Home.Jobs) != 2 {
+		t.Fatal("expired confirmation must not delete the job")
+	}
+	m, _ = m.handleHomeKey(keyPress('x'))
+	if len(m.Home.Jobs) != 1 || m.Home.Jobs[0].Name != "一" {
+		t.Fatalf("second x within the window should delete the selected job, jobs = %+v", m.Home.Jobs)
+	}
+	if m.Home.PendingDeleteID != "" {
+		t.Fatal("confirmation state should reset after deletion")
+	}
+}
+
+func TestHomeActionToasts(t *testing.T) {
+	useTempWorkingDir(t, t.TempDir())
+	installFakeJobLauncher(t)
+	m := newTestModel()
+	m.Page = PageHome
+	m.Home.Jobs = []CrawlerJob{newCrawlerJob("一", defaultCrawlerParams())}
+	m.Home.SelectedJob = 0
+	m.Home.Focus = HomeFocusParams
+
+	m, _ = m.handleHomeKey(keyCtrl('s'))
+	if m.ToastMsg != "任务已保存" {
+		t.Fatalf("Ctrl+S toast = %q, want 任务已保存", m.ToastMsg)
+	}
+
+	m, _ = m.handleHomeKey(keyCode(tea.KeyEscape))
+	m, _ = m.handleHomeKey(keyPress('s'))
+	if !strings.Contains(m.ToastMsg, "任务已启动 (pid ") {
+		t.Fatalf("start toast = %q, want 任务已启动 (pid ...)", m.ToastMsg)
+	}
+	m, _ = m.handleHomeKey(keyPress('s'))
+	if !strings.Contains(m.ToastMsg, "已发送停止信号") {
+		t.Fatalf("stop toast = %q, want 已发送停止信号", m.ToastMsg)
+	}
+
+	m.Home.Jobs[0].PID = 0
+	m, _ = m.handleHomeKey(keyPress('x'))
+	if m.ToastMsg != "再按一次 x 确认删除该任务" {
+		t.Fatalf("delete confirm toast = %q", m.ToastMsg)
+	}
+	m, _ = m.handleHomeKey(keyPress('x'))
+	if len(m.Home.Jobs) != 0 || m.ToastMsg != "任务已保存" {
+		t.Fatalf("delete left %d jobs with toast %q", len(m.Home.Jobs), m.ToastMsg)
+	}
+}
+
+func TestHandleHomeKeyOpensJobLog(t *testing.T) {
+	useTempWorkingDir(t, t.TempDir())
+	m := newTestModel()
+	m.Page = PageHome
+	m.Home.Jobs = []CrawlerJob{newCrawlerJob("任务", defaultCrawlerParams())}
+	m.Home.SelectedJob = 0
+	m.Home.Focus = HomeFocusJobs
+
+	result, cmd := m.handleHomeKey(keyPress('L'))
+	if result.Dialog != DialogJobLog {
+		t.Fatalf("dialog = %v, want DialogJobLog", result.Dialog)
+	}
+	if result.JobLog.JobID != m.Home.Jobs[0].ID {
+		t.Fatalf("job log opened for %q, want %q", result.JobLog.JobID, m.Home.Jobs[0].ID)
 	}
 	if cmd == nil {
-		t.Error("Starting crawler should trigger crawl command")
+		t.Fatal("opening the job log should load the log file")
 	}
 }
 
-func TestHandleHomeKeyStopCrawler(t *testing.T) {
+func TestJobLogDialogShowsTail(t *testing.T) {
+	useTempWorkingDir(t, t.TempDir())
+	job := newCrawlerJob("任务", defaultCrawlerParams())
+	path, err := jobLogPath(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for i := 1; i <= 600; i++ {
+		fmt.Fprintf(&b, "[Crawler] 第 %d 页完成\n", i)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	lines, err := readJobLogLines(job.ID, 500)
+	if err != nil {
+		t.Fatalf("readJobLogLines: %v", err)
+	}
+	if len(lines) != 500 {
+		t.Fatalf("lines = %d, want the last 500", len(lines))
+	}
+	if !strings.Contains(lines[0], "第 101 页完成") || !strings.Contains(lines[len(lines)-1], "第 600 页完成") {
+		t.Fatalf("tail window = %q .. %q, want 101..600", lines[0], lines[len(lines)-1])
+	}
+
 	m := newTestModel()
 	m.Page = PageHome
-	m.Home.CrawlerState = CrawlerRunning
-	m.Home.HomeButtonIdx = 1
-
-	result, _ := m.handleHomeKey(keyCode(tea.KeyEnter))
-	m = result
-
-	if m.Home.CrawlerState != CrawlerStopped {
-		t.Errorf("CrawlerState = %v, want CrawlerStopped", m.Home.CrawlerState)
+	m.Home.Jobs = []CrawlerJob{job}
+	m.Home.SelectedJob = 0
+	m.Home.Focus = HomeFocusJobs
+	result, _ := m.handleHomeKey(keyPress('L'))
+	loaded, _ := result.Update(loadJobLogCmd(job.ID)())
+	result = loaded.(Model)
+	if result.Dialog != DialogJobLog || len(result.JobLog.Logs.Lines()) != 500 {
+		t.Fatalf("dialog lines = %d, want 500", len(result.JobLog.Logs.Lines()))
+	}
+	if out := viewString(result); !containsStr(out, "任务日志") || !containsStr(out, "第 101 页完成") {
+		t.Errorf("job log dialog should render the tail window, got:\n%s", out)
 	}
 }
 
-func TestHandleHomeKeyToggleMode(t *testing.T) {
+func TestHomeParamEditingAndInlineInput(t *testing.T) {
 	m := newTestModel()
 	m.Page = PageHome
-	m.Home.HomeButtonIdx = 2
-	m.Home.CrawlMode = CrawlSequential
+	m.Home.Jobs = []CrawlerJob{newCrawlerJob("任务", defaultCrawlerParams())}
+	m.Home.SelectedJob = 0
+	m.Home.Focus = HomeFocusParams
+	m.Home.ParamRow = 0
 
-	result, _ := m.handleHomeKey(keyCode(tea.KeyEnter))
-	m = result
-
-	if m.Home.CrawlMode != CrawlMonitor {
-		t.Errorf("CrawlMode = %v, want CrawlMonitor", m.Home.CrawlMode)
+	rows := m.Home.paramRows()
+	modeRow, boolRowIdx, startRow, batchRow := -1, -1, -1, -1
+	for i, row := range rows {
+		switch {
+		case row.Kind == paramRowMode:
+			modeRow = i
+		case row.Kind == paramRowBool && boolRowIdx == -1:
+			boolRowIdx = i
+		case row.Kind == paramRowInt && row.Label == "起始页":
+			startRow = i
+		case row.Kind == paramRowInt && row.Label == "帖子批次":
+			batchRow = i
+		}
 	}
-}
-
-func TestHandleHomeKeyButtonNavigation(t *testing.T) {
-	m := newTestModel()
-	m.Page = PageHome
-	m.Home.HomeButtonIdx = 0
-
-	m, _ = m.handleHomeKey(keyCode(tea.KeyRight))
-	if m.Home.HomeButtonIdx != 1 {
-		t.Errorf("HomeButtonIdx = %d, want 1", m.Home.HomeButtonIdx)
-	}
-
-	m, _ = m.handleHomeKey(keyCode(tea.KeyRight))
-	if m.Home.HomeButtonIdx != 2 {
-		t.Errorf("HomeButtonIdx = %d, want 2", m.Home.HomeButtonIdx)
+	if modeRow < 0 || boolRowIdx < 0 || startRow < 0 || batchRow < 0 {
+		t.Fatalf("param rows missing expected entries: %+v", rows)
 	}
 
-	m, _ = m.handleHomeKey(keyCode(tea.KeyRight))
-	if m.Home.HomeButtonIdx != 2 {
-		t.Errorf("HomeButtonIdx should stay at 2, got %d", m.Home.HomeButtonIdx)
+	m.Home.ParamRow = boolRowIdx
+	boolBefore := *rows[boolRowIdx].Bool(&m.Home.Jobs[0].Params)
+	m, _ = m.handleHomeKey(keyPress(' '))
+	if *rows[boolRowIdx].Bool(&m.Home.Jobs[0].Params) == boolBefore {
+		t.Fatalf("Space should toggle %q", rows[boolRowIdx].Label)
 	}
 
-	m, _ = m.handleHomeKey(keyCode(tea.KeyLeft))
-	if m.Home.HomeButtonIdx != 1 {
-		t.Errorf("HomeButtonIdx = %d, want 1", m.Home.HomeButtonIdx)
+	m.Home.ParamRow = modeRow
+	m, _ = m.handleHomeKey(keyCode(tea.KeyEnter))
+	if m.Home.Jobs[0].Params.Mode != CrawlMonitor {
+		t.Fatalf("mode = %v, want monitor after Enter on the mode row", m.Home.Jobs[0].Params.Mode)
+	}
+	m.Home.Jobs[0].Params.Mode = CrawlSequential
+	m.Home.ParamRow = startRow
+	m, _ = m.handleHomeKey(keyCode(tea.KeyEnter))
+	if !m.Home.ParamEditing() {
+		t.Fatal("Enter on an int row should focus the inline input")
+	}
+	m.Home.Input.SetValue("500")
+	m, _ = m.handleHomeKey(keyCode(tea.KeyEnter))
+	if m.Home.ParamEditing() {
+		t.Fatal("Enter should commit the inline edit")
+	}
+	if got := m.Home.Jobs[0].Params.StartPage; got != 500 {
+		t.Fatalf("StartPage = %d, want 500", got)
 	}
 
-	m, _ = m.handleHomeKey(keyCode(tea.KeyLeft))
-	if m.Home.HomeButtonIdx != 0 {
-		t.Errorf("HomeButtonIdx = %d, want 0", m.Home.HomeButtonIdx)
+	// Out-of-range input is clamped on commit (帖子批次 is bounded to 1..200).
+	m.Home.ParamRow = batchRow
+	m, _ = m.handleHomeKey(keyCode(tea.KeyEnter))
+	m.Home.Input.SetValue("99999")
+	m, _ = m.handleHomeKey(keyCode(tea.KeyEnter))
+	if got := m.Home.Jobs[0].Params.PostBatchSize; got != 200 {
+		t.Fatalf("PostBatchSize = %d, want clamped to 200", got)
 	}
 
-	m, _ = m.handleHomeKey(keyCode(tea.KeyLeft))
-	if m.Home.HomeButtonIdx != 0 {
-		t.Errorf("HomeButtonIdx should stay at 0, got %d", m.Home.HomeButtonIdx)
+	// Esc cancels without applying.
+	m, _ = m.handleHomeKey(keyCode(tea.KeyEnter))
+	kept := m.Home.Jobs[0].Params.StartPage
+	m.Home.Input.SetValue("7")
+	m, _ = m.handleHomeKey(keyCode(tea.KeyEscape))
+	if m.Home.ParamEditing() {
+		t.Fatal("Esc should leave the inline edit")
+	}
+	if m.Home.Jobs[0].Params.StartPage != kept {
+		t.Fatalf("Esc must not apply the edit, got %d want %d", m.Home.Jobs[0].Params.StartPage, kept)
 	}
 }
 
@@ -1347,8 +1565,10 @@ func TestViewHomeContainsExpectedText(t *testing.T) {
 	m.Page = PageHome
 	m.Home.LoggedIn = true
 	m.Home.LoginUser = "testuser"
-	m.Home.CrawlerState = CrawlerStopped
-	m.Home.LastCrawlPage = 5
+	m.Home.Jobs = []CrawlerJob{newCrawlerJob("全量循环", CrawlerParams{
+		Mode: CrawlSequential, StartPage: 5, Pages: 10, PostBatchSize: 200, CommentLimit: 200, ConvertWebp: true,
+	})}
+	m.Home.SelectedJob = 0
 	m.Width = 80
 	m.Height = 24
 
@@ -1358,12 +1578,14 @@ func TestViewHomeContainsExpectedText(t *testing.T) {
 		"TreeHole TUI",
 		"已登录",
 		"testuser",
-		"已停止",
-		"上次爬取",
-		"第5页",
-		"启动爬虫",
-		"停止爬虫",
-		"顺序爬取",
+		"后台任务",
+		"0 运行中 / 共 1",
+		"全量循环",
+		"未启动",
+		"参数 — 全量循环",
+		"起始页",
+		"n 新建",
+		"Enter 进入参数编辑",
 	}
 
 	for _, s := range expectedStrings {
@@ -1373,34 +1595,68 @@ func TestViewHomeContainsExpectedText(t *testing.T) {
 	}
 }
 
-func TestViewHomeCrawlerRunning(t *testing.T) {
+func TestViewHomeShowsRunningJob(t *testing.T) {
+	dir := t.TempDir()
+	useTempWorkingDir(t, dir)
 	m := newTestModel()
 	m.Page = PageHome
-	m.Home.CrawlerState = CrawlerRunning
+	job := newCrawlerJob("全量", defaultCrawlerParams())
+	job.PID = spawnFakeCrawler(t)
+	job.StartedAt = time.Now()
+	m.Home.Jobs = []CrawlerJob{job}
+	m.Home.SelectedJob = 0
 	m.Width = 80
 	m.Height = 24
 
 	output := viewString(m)
 
 	if !containsStr(output, "运行中") {
-		t.Error("View() should show '运行中' when crawler is running")
+		t.Error("View() should show '运行中' when a job process is alive")
+	}
+	if !containsStr(output, "1 运行中 / 共 1") {
+		t.Error("View() should count the running job")
+	}
+	if !containsStr(output, fmt.Sprintf("pid %d", job.PID)) {
+		t.Errorf("View() should show the pid, output:\n%s", output)
 	}
 }
 
-func TestViewHomeCrawlerError(t *testing.T) {
+func TestViewHomeWarnsAboutConcurrentWriters(t *testing.T) {
+	useTempWorkingDir(t, t.TempDir())
 	m := newTestModel()
 	m.Page = PageHome
-	m.Home.CrawlerState = CrawlerError
-	m.Home.HomeLastError = "connection timeout"
+	for i := 0; i < 2; i++ {
+		job := newCrawlerJob(fmt.Sprintf("任务%d", i+1), defaultCrawlerParams())
+		job.PID = spawnFakeCrawler(t)
+		job.StartedAt = time.Now()
+		m.Home.Jobs = append(m.Home.Jobs, job)
+	}
+	m.Home.SelectedJob = 0
+	m.Width = 80
+	m.Height = 30
+
+	output := viewString(m)
+	if !containsStr(output, "2 运行中 / 共 2") {
+		t.Errorf("View() should count both running jobs, got:\n%s", output)
+	}
+	if !containsStr(output, "写锁") {
+		t.Error("View() should warn about concurrent SQLite writers")
+	}
+}
+
+func TestViewHomeShowsLastError(t *testing.T) {
+	m := newTestModel()
+	m.Page = PageHome
+	m.Home.LastError = "启动失败: 权限不足"
 	m.Width = 80
 	m.Height = 24
 
 	output := viewString(m)
 
 	if !containsStr(output, "错误") {
-		t.Error("View() should show '错误' when crawler has error")
+		t.Error("View() should show '错误' when the page has an error")
 	}
-	if !containsStr(output, "connection timeout") {
+	if !containsStr(output, "启动失败: 权限不足") {
 		t.Error("View() should show the last error message")
 	}
 }
@@ -1408,18 +1664,20 @@ func TestViewHomeCrawlerError(t *testing.T) {
 func TestViewHomeMonitorMode(t *testing.T) {
 	m := newTestModel()
 	m.Page = PageHome
-	m.Home.CrawlMode = CrawlMonitor
-	m.Home.MonitorPages = 3
+	m.Home.Jobs = []CrawlerJob{newCrawlerJob("监控", CrawlerParams{
+		Mode: CrawlMonitor, MonitorPages: 3, PostBatchSize: 200, CommentLimit: 200, ConvertWebp: true,
+	})}
+	m.Home.SelectedJob = 0
 	m.Width = 80
 	m.Height = 24
 
 	output := viewString(m)
 
-	if !containsStr(output, "监控模式") {
-		t.Error("View() should show '监控模式' in monitor mode")
+	if !containsStr(output, "监控前 3 页") {
+		t.Errorf("View() should summarize the monitor job, output:\n%s", output)
 	}
-	if !containsStr(output, "3") {
-		t.Error("View() should show monitor page count")
+	if !containsStr(output, "● 监控") {
+		t.Error("View() should mark the monitor mode as selected")
 	}
 }
 

@@ -167,6 +167,31 @@ func (v postsDetailView) commentsHit(x, y int) bool {
 	return v.CommentsBar.Visible && x == v.Comments.X+v.Comments.W && y >= v.Comments.Y && y < v.Comments.Y+v.Comments.H
 }
 
+// homePageView is the computed geometry of the sync page's interactive rows.
+type homePageView struct {
+	Active bool
+	Jobs   map[int]rect
+	Params map[int]rect
+}
+
+func (m Model) homePageView() homePageView {
+	if m.Page != PageHome {
+		return homePageView{}
+	}
+	width := m.Width
+	height := m.contentAreaHeightForSize(width, m.Height)
+	_, geo := m.Home.buildLines(width, height)
+	top := m.contentAreaTop(width)
+	view := homePageView{Active: true, Jobs: map[int]rect{}, Params: map[int]rect{}}
+	for idx, line := range geo.JobRows {
+		view.Jobs[idx] = rect{X: 0, Y: top + line, W: width, H: 1}
+	}
+	for idx, line := range geo.ParamRows {
+		view.Params[idx] = rect{X: 0, Y: top + line, W: width, H: 1}
+	}
+	return view
+}
+
 // scoresPageView is the computed geometry of the score table rows and its
 // scrollbar.
 type scoresPageView struct {
@@ -200,9 +225,9 @@ func (m Model) scoresPageView() scoresPageView {
 	}
 }
 
-// toolsPanelRect mirrors renderPanelScreenWithStyle: the 80%-sized centered
-// panel (min 40x22) that hosts the tools dialog.
-func (m Model) toolsPanelRect(width, height int) rect {
+// panelRect mirrors renderPanelScreenWithStyle: the 80%-sized centered panel
+// (min 40x22) that hosts overlay dialogs (tools, job log).
+func (m Model) panelRect(width, height int) rect {
 	statusLineHeight := lipgloss.Height(m.renderStatusLine(width))
 	availableHeight := maxInt(1, height-statusLineHeight)
 	panelW := width * 4 / 5
@@ -222,19 +247,19 @@ func (m Model) toolsPanelRect(width, height int) rect {
 	return rect{X: (width - panelW) / 2, Y: (availableHeight - panelH) / 2, W: panelW, H: panelH}
 }
 
-// toolsContentView is the rect of the tools dialog content inside the panel
+// panelContentView is the rect of a panel dialog's content inside the panel
 // (the panel is padded by (1,3)).
-func (m Model) toolsContentView(width, height int) rect {
-	panel := m.toolsPanelRect(width, height)
+func (m Model) panelContentView(width, height int) rect {
+	panel := m.panelRect(width, height)
 	contentW := maxInt(20, panel.W-panelContentStyle.GetHorizontalFrameSize())
 	contentH := maxInt(8, panel.H-panelContentStyle.GetVerticalFrameSize())
 	return rect{X: panel.X + 3, Y: panel.Y + 1, W: contentW, H: contentH}
 }
 
-// toolsBodyView is the rect of the section body inside the tools dialog
-// (below the section tabs row and its blank spacer).
-func (m Model) toolsBodyView(width, height int) rect {
-	content := m.toolsContentView(width, height)
+// panelBodyView is the rect below a dialog's one-row header (tabs/title) and
+// its blank spacer, where the scrollable body starts.
+func (m Model) panelBodyView(width, height int) rect {
+	content := m.panelContentView(width, height)
 	return rect{X: content.X, Y: content.Y + 2, W: content.W, H: maxInt(3, content.H-2)}
 }
 

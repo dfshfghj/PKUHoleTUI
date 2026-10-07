@@ -26,6 +26,7 @@ const (
 	mouseTargetLogs
 	mouseTargetConfig
 	mouseTargetNotifications
+	mouseTargetJobLog
 )
 
 // dragState tracks an in-progress scrollbar drag.
@@ -101,10 +102,93 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (Model, tea.Cmd) {
 	switch m.Page {
 	case PagePosts:
 		return m.handlePostsMouseClick(msg)
+	case PageHome:
+		return m.handleHomeMouseClick(msg)
 	case PageScores:
 		return m.handleScoresMouseClick(msg)
 	}
 	return m, nil
+}
+
+// handleHomeMouseClick selects a job row, or activates the clicked parameter
+// row (toggle for checkboxes/radios, inline input for numbers).
+func (m Model) handleHomeMouseClick(msg tea.MouseClickMsg) (Model, tea.Cmd) {
+	view := m.homePageView()
+	if !view.Active {
+		return m, nil
+	}
+	for idx, row := range view.Jobs {
+		if row.contains(msg.X, msg.Y) {
+			m.Home.SelectedJob = idx
+			m.Home.Focus = HomeFocusJobs
+			m.Home.Input.Blur()
+			if m.Clicks.register(msg.X, msg.Y, time.Now()) {
+				m.Home.Focus = HomeFocusParams
+				m.Home.ParamRow = 0
+			}
+			return m, nil
+		}
+	}
+	for idx, row := range view.Params {
+		if !row.contains(msg.X, msg.Y) {
+			continue
+		}
+		m.Home.ParamRow = idx
+		m.Home.Focus = HomeFocusParams
+		if rows := m.Home.paramRows(); idx < len(rows) && rows[idx].Kind == paramRowMode {
+			// Clicking a mode option switches straight to that option.
+			if mode, ok := homeModeAtColumn(msg.X - row.X); ok {
+				m.Home.setParamMode(mode)
+			}
+			return m, nil
+		}
+		return m.handleHomeKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	}
+	return m, nil
+}
+
+// scrollHomeAt turns a wheel notch into cursor movement: over the parameter
+// panel it moves the row cursor, over the job list it moves the selection so
+// the job window follows, just like the arrow keys.
+func (m Model) scrollHomeAt(x, y, delta int) (Model, tea.Cmd) {
+	view := m.homePageView()
+	if !view.Active || m.Home.ParamEditing() {
+		return m, nil
+	}
+	step := 1
+	if delta < 0 {
+		step = -1
+	}
+	if homeRowsHit(view.Params, x, y) {
+		rows := m.Home.paramRows()
+		m.Home.Focus = HomeFocusParams
+		m.Home.ParamRow = clampInt(m.Home.ParamRow+step, 0, maxInt(0, len(rows)-1))
+		return m, nil
+	}
+	if homeRowsHit(view.Jobs, x, y) {
+		next := m.Home.SelectedJob + step
+		if next < 0 {
+			next = 0
+		}
+		if next > len(m.Home.Jobs)-1 {
+			next = len(m.Home.Jobs) - 1
+		}
+		if next < 0 {
+			return m, nil
+		}
+		m.Home.SelectedJob = next
+		m.Home.Focus = HomeFocusJobs
+	}
+	return m, nil
+}
+
+func homeRowsHit(rows map[int]rect, x, y int) bool {
+	for _, row := range rows {
+		if row.contains(x, y) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) handleScoresMouseClick(msg tea.MouseClickMsg) (Model, tea.Cmd) {
@@ -136,6 +220,8 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (Model, tea.Cmd) {
 	switch m.Page {
 	case PagePosts:
 		return m.scrollPostsAt(msg.X, msg.Y, delta)
+	case PageHome:
+		return m.scrollHomeAt(msg.X, msg.Y, delta)
 	case PageScores:
 		m.Scores.Move(delta, m.contentAreaHeightForSize(m.Width, m.Height))
 	}
@@ -205,12 +291,15 @@ func (m *Model) applyScrollOffset(target mouseTarget, offset int) {
 		logs.offset = clampInt(offset, 0, maxInt(0, len(logs.lines)-1))
 	case mouseTargetConfig:
 		config := &m.ToolsDialog.Config
-		body := m.toolsBodyView(m.Width, m.Height)
+		body := m.panelBodyView(m.Width, m.Height)
 		maxOffset := maxInt(0, len(config.lines)-config.editorHeight(body.H))
 		config.offset = clampInt(offset, 0, maxOffset)
 	case mouseTargetNotifications:
 		notifications := &m.ToolsDialog.Notifications
 		notifications.selected = clampInt(offset, 0, maxInt(0, len(notifications.items)-1))
+	case mouseTargetJobLog:
+		logs := &m.JobLog.Logs
+		logs.offset = clampInt(offset, 0, maxInt(0, len(logs.lines)-1))
 	}
 }
 

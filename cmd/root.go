@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -23,10 +24,19 @@ func init() {
 		log.Printf("[Init] 初始化 data 目录失败: %v", err)
 		return
 	}
-	logPath, err := config.LogPath()
-	if err != nil {
-		log.Printf("[Init] 解析日志路径失败: %v", err)
-		return
+	// Background jobs started from the TUI redirect their log here so each job
+	// gets its own file; the flag parser has not run yet at this point.
+	logPath := os.Getenv("TREEHOLE_CRAWLER_LOG")
+	if logPath == "" {
+		resolved, err := config.LogPath()
+		if err != nil {
+			log.Printf("[Init] 解析日志路径失败: %v", err)
+			return
+		}
+		logPath = resolved
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		log.Printf("[Init] 创建日志目录失败: %v", err)
 	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
