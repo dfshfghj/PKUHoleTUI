@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"treehole/internal/crawler"
 
 	"github.com/spf13/cobra"
@@ -11,6 +13,15 @@ func newCrawlerCmd() *cobra.Command {
 		Use:   "crawler",
 		Short: "Run the crawler",
 		Long:  `启动 PKU Hole 爬虫，支持一次性抓取、无限抓取和循环抓取。`,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if err := crawler.ValidatePostPageSize(postBatchSize); err != nil {
+				return fmt.Errorf("--post-batch-size: %w", err)
+			}
+			if err := crawler.ValidateCommentLimit(commentLimit); err != nil {
+				return fmt.Errorf("--comment-limit: %w", err)
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemon()
 		},
@@ -23,8 +34,8 @@ func newCrawlerCmd() *cobra.Command {
 	cmd.Flags().IntVar(&pageDelay, "page-delay", 1, "seconds between page requests")
 	cmd.Flags().BoolVar(&resume, "resume", false, "resume from saved crawl state")
 	cmd.Flags().BoolVar(&saveRawJSON, "save-raw-json", false, "save raw API responses as JSON files")
-	cmd.Flags().IntVar(&postBatchSize, "post-batch-size", 200, "posts requested per API call")
-	cmd.Flags().IntVar(&commentLimit, "comment-limit", 200, "comments embedded per post in the post list; remaining pages are fetched until reply is reached")
+	cmd.Flags().IntVar(&postBatchSize, "post-batch-size", 100, "posts requested per API call (1..100, server cap)")
+	cmd.Flags().IntVar(&commentLimit, "comment-limit", 100, "comments embedded per post in the post list (0..100, server cap); remaining pages are fetched until reply is reached")
 	cmd.Flags().BoolVar(&fetchImages, "fetch-images", false, "download images from image posts")
 	cmd.Flags().BoolVar(&convertWebp, "convert-webp", true, "convert downloaded images to WebP format")
 	cmd.Flags().StringVar(&deletedJSONPath, "deleted-json", "", "merge deleted-post gaps into this JSON file while crawling (daily one-off run recommended)")

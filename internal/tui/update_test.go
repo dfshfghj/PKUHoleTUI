@@ -1006,13 +1006,13 @@ func TestHomeParamEditingAndInlineInput(t *testing.T) {
 		t.Fatalf("StartPage = %d, want 500", got)
 	}
 
-	// Out-of-range input is clamped on commit (帖子批次 is bounded to 1..200).
+	// Out-of-range input is clamped on commit (帖子批次 is bounded to 1..100).
 	m.Home.ParamRow = batchRow
 	m, _ = m.handleHomeKey(keyCode(tea.KeyEnter))
 	m.Home.Input.SetValue("99999")
 	m, _ = m.handleHomeKey(keyCode(tea.KeyEnter))
-	if got := m.Home.Jobs[0].Params.PostBatchSize; got != 200 {
-		t.Fatalf("PostBatchSize = %d, want clamped to 200", got)
+	if got := m.Home.Jobs[0].Params.PostBatchSize; got != 100 {
+		t.Fatalf("PostBatchSize = %d, want clamped to 100", got)
 	}
 
 	// Esc cancels without applying.

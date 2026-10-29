@@ -43,8 +43,8 @@ func defaultCrawlerParams() CrawlerParams {
 		MonitorPages:     3,
 		LoopDelaySeconds: 60,
 		PageDelaySeconds: 1,
-		PostBatchSize:    200,
-		CommentLimit:     200,
+		PostBatchSize:    100,
+		CommentLimit:     100,
 		ConvertWebp:      true,
 		ThumbnailStartID: 30000,
 		ThumbnailEndID:   31000,
@@ -212,8 +212,8 @@ func jobArgs(job CrawlerJob) []string {
 		args = append(args, "--loop", "--loop-delay", strconv.Itoa(loopDelay))
 	}
 	args = append(args,
-		"--post-batch-size", strconv.Itoa(clampInt(p.PostBatchSize, 1, 200)),
-		"--comment-limit", strconv.Itoa(clampInt(p.CommentLimit, 1, 200)),
+		"--post-batch-size", strconv.Itoa(clampInt(p.PostBatchSize, 1, 100)),
+		"--comment-limit", strconv.Itoa(clampInt(p.CommentLimit, 1, 100)),
 	)
 	// Only the crawl subcommands (sequential/monitor) reach this point.
 	if p.FetchImages {

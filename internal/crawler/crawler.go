@@ -227,6 +227,12 @@ func fetchPostsV3(c *client.Client, page int, postLimit int, commentLimit int, f
 }
 
 func fetchPostsV3WithHistory(c *client.Client, database *db.Database, page int, postLimit int, commentLimit int, fetchImages bool, convertWebp bool, previous []models.Post) ([]models.Post, []models.Comment, map[string]interface{}, error) {
+	if err := ValidatePostPageSize(postLimit); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := ValidateCommentLimit(commentLimit); err != nil {
+		return nil, nil, nil, err
+	}
 	log.Printf("[Crawler] 正在请求 API: page=%d, postLimit=%d, commentLimit=%d", page, postLimit, commentLimit)
 	rawResponse, err := fetchPostListRecovering(c, database, page, postLimit, commentLimit, previous)
 	if err != nil {

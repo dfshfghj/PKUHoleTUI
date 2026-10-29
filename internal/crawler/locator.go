@@ -21,8 +21,11 @@ type PageEstimate struct {
 // verifies the estimate against actual remote PID ranges.
 func EstimatePostPage(targetPID, latestPID int32, limit int, sample db.PIDSample) (PageEstimate, error) {
 	result := PageEstimate{Page: 1, Sample: sample}
-	if targetPID <= 0 || latestPID <= 0 || limit <= 0 {
-		return result, fmt.Errorf("PID and limit must be positive")
+	if targetPID <= 0 || latestPID <= 0 {
+		return result, fmt.Errorf("PID must be positive")
+	}
+	if err := ValidatePostPageSize(limit); err != nil {
+		return result, err
 	}
 	if sample.LivePosts < 0 || (sample.MinPID != 0 || sample.MaxPID != 0) && (sample.MinPID <= 0 || sample.MaxPID < sample.MinPID || sample.LivePosts > int64(sample.MaxPID)-int64(sample.MinPID)+1) {
 		return result, fmt.Errorf("invalid PID sample")

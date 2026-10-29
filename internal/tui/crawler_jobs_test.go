@@ -29,22 +29,22 @@ func TestCrawlerJobArgsMatchCLIFlags(t *testing.T) {
 			name: "sequential looped with output flags",
 			job: CrawlerJob{Params: CrawlerParams{
 				Mode: CrawlSequential, StartPage: 1, Pages: 0, Loop: true, LoopDelaySeconds: 7,
-				PageDelaySeconds: 1, PostBatchSize: 200, CommentLimit: 200,
+				PageDelaySeconds: 1, PostBatchSize: 100, CommentLimit: 100,
 				FetchImages: true, SaveRawJSON: true, ConvertWebp: true,
 			}},
 			want: []string{"crawler", "--start-page", "1", "--pages", "0", "--page-delay", "1",
-				"--loop", "--loop-delay", "7", "--post-batch-size", "200", "--comment-limit", "200",
+				"--loop", "--loop-delay", "7", "--post-batch-size", "100", "--comment-limit", "100",
 				"--fetch-images", "--save-raw-json", "--convert-webp=true"},
 		},
 		{
 			name: "monitor forces newest pages and loop but keeps delays and output flags",
 			job: CrawlerJob{Params: CrawlerParams{
 				Mode: CrawlMonitor, StartPage: 99, Pages: 42, MonitorPages: 3, Loop: false,
-				LoopDelaySeconds: 60, PageDelaySeconds: 5, PostBatchSize: 200, CommentLimit: 200,
+				LoopDelaySeconds: 60, PageDelaySeconds: 5, PostBatchSize: 100, CommentLimit: 100,
 				FetchImages: true, SaveRawJSON: true, ConvertWebp: true,
 			}},
 			want: []string{"crawler", "--start-page", "1", "--pages", "3", "--page-delay", "5",
-				"--loop", "--loop-delay", "60", "--post-batch-size", "200", "--comment-limit", "200",
+				"--loop", "--loop-delay", "60", "--post-batch-size", "100", "--comment-limit", "100",
 				"--fetch-images", "--save-raw-json", "--convert-webp=true"},
 		},
 		{

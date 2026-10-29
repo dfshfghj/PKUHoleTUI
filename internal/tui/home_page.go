@@ -424,8 +424,8 @@ func (h *HomePageModel) paramRows() []homeParamRow {
 		)
 	}
 	rows = append(rows,
-		intRow("帖子批次", func(p *CrawlerParams) *int { return &p.PostBatchSize }, 20, 1, 200),
-		intRow("评论上限", func(p *CrawlerParams) *int { return &p.CommentLimit }, 20, 1, 200),
+		intRow("帖子批次", func(p *CrawlerParams) *int { return &p.PostBatchSize }, 20, 1, 100),
+		intRow("评论上限", func(p *CrawlerParams) *int { return &p.CommentLimit }, 20, 1, 100),
 		boolRow("转换 WebP", func(p *CrawlerParams) *bool { return &p.ConvertWebp }),
 	)
 	return rows

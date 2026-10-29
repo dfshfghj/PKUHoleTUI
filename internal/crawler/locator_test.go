@@ -40,6 +40,9 @@ func TestEstimatePostPage(t *testing.T) {
 	if _, err := EstimatePostPage(1, 100, 0, db.PIDSample{}); err == nil {
 		t.Fatal("accepted zero limit")
 	}
+	if _, err := EstimatePostPage(1, 100, 101, db.PIDSample{}); err == nil {
+		t.Fatal("accepted limit above server cap")
+	}
 }
 
 func TestLocatePostPageCorrectsSparseHistoryAndDeletedGaps(t *testing.T) {

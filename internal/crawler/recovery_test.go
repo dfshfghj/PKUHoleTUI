@@ -144,7 +144,7 @@ func TestPostRecoveryPersistentServerTimeoutIsBounded(t *testing.T) {
 	c := mustNewTestClient(t)
 	attempts := 0
 	c.GetHttpClient().Transport = crawlTransport(func(r *http.Request) (*http.Response, error) { attempts++; return retryResponse(504, ""), nil })
-	if _, err := fetchPostListRecovering(c, nil, 3, 128, 0, nil); err == nil {
+	if _, err := fetchPostListRecovering(c, nil, 3, 100, 0, nil); err == nil {
 		t.Fatal("persistent timeout ignored")
 	}
 	if attempts != 1+maxPageReductions {

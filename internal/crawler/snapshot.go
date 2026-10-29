@@ -9,8 +9,26 @@ import (
 	"treehole/internal/models"
 )
 
-// commentListPageLimit is the observed server cap for comment/list pages.
-const commentListPageLimit = 100
+// Server page caps. They are separate because the limits may diverge.
+const (
+	MaxPostPageSize    = 100
+	MaxCommentPageSize = 100
+)
+
+func ValidatePostPageSize(size int) error {
+	if size < 1 || size > MaxPostPageSize {
+		return fmt.Errorf("post page size %d must be between 1 and %d (server cap)", size, MaxPostPageSize)
+	}
+	return nil
+}
+
+// ValidateCommentLimit allows 0 for "do not embed comments in the post list".
+func ValidateCommentLimit(limit int) error {
+	if limit < 0 || limit > MaxCommentPageSize {
+		return fmt.Errorf("comment limit %d must be between 0 and %d (server cap)", limit, MaxCommentPageSize)
+	}
+	return nil
+}
 
 // fetchAllComments pages until an empty or short page. The response total is
 // not the comment count (it tracks the request's page size), so it cannot be
@@ -25,17 +43,15 @@ func fetchAllComments(c *client.Client, pid int32, pageSize int) ([]models.Comme
 // verified before appending. It stops at the target count or a short page.
 func fetchCommentsFrom(c *client.Client, pid int32, initial []models.Comment, target, pageSize int) ([]models.Comment, error) {
 	if pageSize <= 0 {
-		pageSize = 200
+		pageSize = MaxCommentPageSize
+	}
+	if pageSize > MaxCommentPageSize {
+		return nil, fmt.Errorf("comment page size %d exceeds server cap %d", pageSize, MaxCommentPageSize)
 	}
 	comments := append([]models.Comment(nil), initial...)
 	seen := make(map[int32]bool, len(comments))
 	for _, comment := range comments {
 		seen[comment.Cid] = true
-	}
-	// Embedded lists can exceed the comment/list cap; align continuation
-	// requests so page numbers stay consistent with the accepted prefix.
-	if len(initial) > 0 && pageSize > commentListPageLimit {
-		pageSize = commentListPageLimit
 	}
 	reductions := 0
 	for target <= 0 || len(comments) < target {

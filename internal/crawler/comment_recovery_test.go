@@ -32,9 +32,9 @@ func TestCommentServerTimeoutRecovery(t *testing.T) {
 			want:     []string{"1/5", "1/2", "2/2", "3/2", "4/2"},
 		},
 		{
-			name: "server cap sets effective offset", limit: 200, total: 5, cap: 2,
+			name: "server cap sets effective offset", limit: 100, total: 5, cap: 2,
 			statuses: map[string]int{"2/2": 504},
-			want:     []string{"1/200", "2/2", "3/1", "4/1", "5/1", "6/1"},
+			want:     []string{"1/100", "2/2", "3/1", "4/1", "5/1", "6/1"},
 		},
 		{
 			name: "auth after timeout exits", limit: 5, total: 7,
@@ -150,11 +150,32 @@ func TestCommentsEmptyFirstPageIsComplete(t *testing.T) {
 		body := `{"code":20000,"data":{"total":100,"list":[]}}`
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
-	comments, err := fetchAllComments(c, 10, 200)
+	comments, err := fetchAllComments(c, 10, 100)
 	if err != nil || len(comments) != 0 {
 		t.Fatalf("comments=%v err=%v", comments, err)
 	}
 	if requests != 1 {
 		t.Fatalf("requests=%d", requests)
+	}
+}
+
+func TestPageSizeAboveServerCapIsRejected(t *testing.T) {
+	c := mustNewTestClient(t)
+	requests := 0
+	c.GetHttpClient().Transport = crawlTransport(func(r *http.Request) (*http.Response, error) {
+		requests++
+		return retryResponse(200, `{"code":20000,"data":{"total":0,"list":[]}}`), nil
+	})
+	if _, err := fetchAllComments(c, 10, 101); err == nil {
+		t.Fatal("comment page size above cap accepted")
+	}
+	if _, _, _, err := fetchPostsV3(c, 1, 20, 101, false, false); err == nil {
+		t.Fatal("comment limit above cap accepted")
+	}
+	if _, _, _, err := fetchPostsV3(c, 1, 101, 0, false, false); err == nil {
+		t.Fatal("post page size above cap accepted")
+	}
+	if requests != 0 {
+		t.Fatalf("requests=%d, want validation before any request", requests)
 	}
 }

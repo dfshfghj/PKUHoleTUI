@@ -28,6 +28,12 @@ func isServerTimeout(err error) bool {
 }
 
 func fetchPostListPage(c *client.Client, page, limit, commentLimit int) (map[string]interface{}, []byte, error) {
+	if err := ValidatePostPageSize(limit); err != nil {
+		return nil, nil, err
+	}
+	if err := ValidateCommentLimit(commentLimit); err != nil {
+		return nil, nil, err
+	}
 	body, err := retryTimeout(c, fmt.Sprintf("posts page=%d limit=%d", page, limit), func(attempt *client.Client) ([]byte, error) {
 		resp, err := attempt.GetPostsList(page, limit, commentLimit, 1)
 		if err != nil {
@@ -96,8 +102,14 @@ func writeRecoveryDump(page, limit int, cause error, responses []map[string]inte
 // smaller pages. Floor division at both ends intentionally includes partial
 // boundary pages; trimming happens only after those pages have been fetched.
 func fetchPostListRecovering(c *client.Client, database *db.Database, page, limit, commentLimit int, previous []models.Post) (raw map[string]interface{}, err error) {
-	if page <= 0 || limit <= 0 {
-		return nil, fmt.Errorf("post page and limit must be positive")
+	if page <= 0 {
+		return nil, fmt.Errorf("post page must be positive")
+	}
+	if err := ValidatePostPageSize(limit); err != nil {
+		return nil, err
+	}
+	if err := ValidateCommentLimit(commentLimit); err != nil {
+		return nil, err
 	}
 	var responses []map[string]interface{}
 	var failedBody []byte

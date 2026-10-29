@@ -1,5 +1,9 @@
 package main
 
+import "os"
+
 func main() {
-	NewRootCmd().Execute()
+	if err := NewRootCmd().Execute(); err != nil {
+		os.Exit(1)
+	}
 }
