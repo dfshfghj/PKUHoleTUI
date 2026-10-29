@@ -46,19 +46,20 @@ func init() {
 }
 
 var (
-	dbPath        string
-	startPage     int
-	pagesPerRound int
-	pageDelay     int
-	loopDelay     int
-	resume        bool
-	loopCrawl     bool
-	saveRawJSON   bool
-	postBatchSize int
-	commentLimit  int
-	fetchImages   bool
-	convertWebp   bool
-	tuiCaptureDir string
+	dbPath          string
+	startPage       int
+	pagesPerRound   int
+	pageDelay       int
+	loopDelay       int
+	resume          bool
+	loopCrawl       bool
+	saveRawJSON     bool
+	postBatchSize   int
+	commentLimit    int
+	fetchImages     bool
+	convertWebp     bool
+	tuiCaptureDir   string
+	deletedJSONPath string
 )
 
 func NewRootCmd() *cobra.Command {
@@ -202,6 +203,30 @@ func runDaemon() error {
 	if err != nil {
 		return fmt.Errorf("初始化客户端失败: %w", err)
 	}
+	defer func() {
+		if !saveRawJSON || crawler.RawResponses() == 0 {
+			return
+		}
+		if err := crawler.SaveRawResponsesToFile(); err != nil {
+			log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
+		} else {
+			log.Printf("[Daemon] 原始响应已保存到JSON文件")
+		}
+	}()
+
+	var tracker *crawler.DeletedTracker
+	if deletedJSONPath != "" {
+		tracker = crawler.NewDeletedTracker(deletedJSONPath)
+		log.Printf("[Daemon] 删帖追踪已启用，结果合并写入 %s", deletedJSONPath)
+	}
+	finalizeDeleted := func() {
+		if tracker == nil {
+			return
+		}
+		if err := tracker.Finalize(); err != nil {
+			log.Printf("[Daemon] 删帖合并失败: %v", err)
+		}
+	}
 
 	if resume {
 		log.Printf("[Daemon] 断点续爬模式已启用，但未保存断点页码；将从配置的第 %d 页开始", startPage)
@@ -228,19 +253,16 @@ func runDaemon() error {
 		select {
 		case <-sigCh:
 			log.Printf("[Daemon] 收到退出信号，正在优雅停止...")
-			if saveRawJSON && crawler.RawResponses() > 0 {
-				// 保存所有收集的原始响应到JSON文件
-				if err := crawler.SaveRawResponsesToFile(); err != nil {
-					log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
-				} else {
-					log.Printf("[Daemon] 原始响应已保存到JSON文件")
-				}
-			}
+			finalizeDeleted()
 			return nil
 		default:
 		}
 
 		page = startPage
+		session := crawler.NewCrawlSession()
+		if tracker != nil {
+			tracker.Reset()
+		}
 
 		round++
 		log.Printf("[Daemon] 开始第 %d 轮抓取", round)
@@ -252,6 +274,7 @@ func runDaemon() error {
 			select {
 			case <-sigCh:
 				log.Printf("[Daemon] 收到退出信号，正在优雅停止...")
+				finalizeDeleted()
 				return nil
 			default:
 			}
@@ -260,12 +283,18 @@ func runDaemon() error {
 				break
 			}
 
-			result, err := crawler.FetchAndSave(client, database, page, saveRawJSON, postBatchSize, commentLimit, fetchImages, convertWebp)
+			result, err := session.FetchAndSave(client, database, page, saveRawJSON, postBatchSize, commentLimit, fetchImages, convertWebp)
 			if err != nil {
-				log.Printf("[Daemon] 第 %d 页抓取失败: %v", page, err)
-				time.Sleep(time.Duration(pageDelay) * time.Second)
-				page++
-				continue
+				finalizeDeleted()
+				return fmt.Errorf("第 %d 页抓取失败: %w", page, err)
+			}
+			if result.PostCount == 0 {
+				log.Printf("[Daemon] 第 %d 页没有帖子，本轮抓取结束", page)
+				break
+			}
+
+			if tracker != nil {
+				tracker.RecordPage(result.Posts)
 			}
 
 			totalPosts += result.PostCount
@@ -284,36 +313,21 @@ func runDaemon() error {
 			time.Sleep(time.Duration(pageDelay) * time.Second)
 		}
 
-		if !loopCrawl && pagesPerRound > 0 {
+		if !loopCrawl {
 			log.Printf("[Daemon] 抓取完成! 共处理 %d 页, +%d帖子 +%d评论", crawled, totalPosts, totalComments)
-			if saveRawJSON {
-				// 保存所有收集的原始响应到JSON文件
-				if err := crawler.SaveRawResponsesToFile(); err != nil {
-					log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
-				} else {
-					log.Printf("[Daemon] 原始响应已保存到JSON文件")
-				}
-			}
+			finalizeDeleted()
 			return nil
 		}
 
 		if loopCrawl {
 			log.Printf("[Daemon] 第 %d 轮完成, 等待 %ds 后开始下一轮...", round, loopDelay)
-		} else {
-			log.Printf("[Daemon] 无限抓取模式继续从第 %d 页开始", page)
+			finalizeDeleted()
 		}
 
 		select {
 		case <-sigCh:
 			log.Printf("[Daemon] 收到退出信号，正在优雅停止...")
-			if saveRawJSON && crawler.RawResponses() > 0 {
-				// 保存所有收集的原始响应到JSON文件
-				if err := crawler.SaveRawResponsesToFile(); err != nil {
-					log.Printf("[Daemon] 保存原始响应到JSON文件失败: %v", err)
-				} else {
-					log.Printf("[Daemon] 原始响应已保存到JSON文件")
-				}
-			}
+			finalizeDeleted()
 			return nil
 		case <-time.After(time.Duration(loopDelay) * time.Second):
 		}

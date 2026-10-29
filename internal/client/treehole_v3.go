@@ -478,19 +478,23 @@ func (c *Client) ListCommentsV3(pid int32, page, limit int, sort, commentStream 
 	q.Set("sort", strconv.Itoa(sort))
 	q.Set("comment_stream", strconv.Itoa(commentStream))
 	var envelope struct {
+		Code int `json:"code"`
 		Data struct {
-			List  []commentDTO `json:"list"`
-			Total int          `json:"total"`
+			List  *[]commentDTO `json:"list"`
+			Total *int          `json:"total"`
 		} `json:"data"`
 	}
 	if err := c.doV3JSON(http.MethodGet, v3CommentList, q, nil, false, &envelope); err != nil {
 		return nil, 0, err
 	}
-	comments := make([]models.Comment, 0, len(envelope.Data.List))
-	for _, dto := range envelope.Data.List {
+	if envelope.Code != 20000 || envelope.Data.List == nil || envelope.Data.Total == nil || *envelope.Data.Total < 0 {
+		return nil, 0, fmt.Errorf("invalid comment list response")
+	}
+	comments := make([]models.Comment, 0, len(*envelope.Data.List))
+	for _, dto := range *envelope.Data.List {
 		comments = append(comments, dto.toModel())
 	}
-	return comments, envelope.Data.Total, nil
+	return comments, *envelope.Data.Total, nil
 }
 
 func (c *Client) ToggleAttentionV3(pid int32) error {
@@ -645,7 +649,7 @@ func (c *Client) doV3JSON(method, endpoint string, query url.Values, body interf
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("v3 request failed with status: %d", resp.StatusCode)
+		return &HTTPStatusError{StatusCode: resp.StatusCode}
 	}
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -811,48 +815,48 @@ func cleanCourseText(raw string) string {
 }
 
 type postDTO struct {
-	Pid             int32        `json:"pid"`
-	Text            string       `json:"text"`
-	Type            string       `json:"type"`
-	Timestamp       int32        `json:"timestamp"`
-	Hidden          int          `json:"hidden"`
-	Reply           int32        `json:"reply"`
-	Likenum         int16        `json:"likenum"`
-	Extra           int32        `json:"extra"`
-	Anonymous       int          `json:"anonymous"`
-	Protected       int16        `json:"protected"`
-	IsTop           int          `json:"is_top"`
-	Label           int32        `json:"label"`
-	Status          int16        `json:"status"`
-	IsComment       int          `json:"is_comment"`
-	TagsIds         string       `json:"tags_ids"`
-	AutoTagsIds     string       `json:"auto_tags_ids"`
-	MgrTagsIds      string       `json:"mgr_tags_ids"`
-	MediaIds        string       `json:"media_ids"`
-	Fold            int16        `json:"fold"`
-	Kind            int16        `json:"kind"`
-	RewardCost      int16        `json:"reward_cost"`
-	RewardState     int16        `json:"reward_state"`
-	IdentityShow    int          `json:"identity_show"`
-	IdentityType    string       `json:"identity_type"`
-	IdentityInfo    interface{}  `json:"identity_info"`
-	ExclusiveIdId   int16        `json:"exclusive_id_id"`
-	ExclusiveIdInfo interface{}  `json:"exclusive_id_info"`
-	Mention         string       `json:"mention"`
-	Mailbox         int16        `json:"mailbox"`
-	ImageSize       string       `json:"image_size"`
-	HasRewardGood   int          `json:"has_reward_good"`
-	IsGodHole       int          `json:"is_god_hole"`
-	IsProtect       int          `json:"is_protect"`
-	TreadNum        int16        `json:"tread_num"`
-	PraiseNum       int16        `json:"praise_num"`
-	PraiseNumShow   int16        `json:"praise_num_show"`
-	FoldNum         int16        `json:"fold_num"`
-	IsFold          int          `json:"is_fold"`
-	CannotReply     int          `json:"cannot_reply"`
-	IsFollow        int          `json:"is_follow"`
-	IsPraise        int          `json:"is_praise"`
-	CommentList     []commentDTO `json:"comment_list"`
+	Pid             int32          `json:"pid"`
+	Text            string         `json:"text"`
+	Type            string         `json:"type"`
+	Timestamp       int32          `json:"timestamp"`
+	Hidden          int            `json:"hidden"`
+	Reply           int32          `json:"reply"`
+	Likenum         int16          `json:"likenum"`
+	Extra           int32          `json:"extra"`
+	Anonymous       int            `json:"anonymous"`
+	Protected       int16          `json:"protected"`
+	IsTop           models.BoolInt `json:"is_top"`
+	Label           int32          `json:"label"`
+	Status          int16          `json:"status"`
+	IsComment       int            `json:"is_comment"`
+	TagsIds         string         `json:"tags_ids"`
+	AutoTagsIds     string         `json:"auto_tags_ids"`
+	MgrTagsIds      string         `json:"mgr_tags_ids"`
+	MediaIds        string         `json:"media_ids"`
+	Fold            int16          `json:"fold"`
+	Kind            int16          `json:"kind"`
+	RewardCost      int16          `json:"reward_cost"`
+	RewardState     int16          `json:"reward_state"`
+	IdentityShow    int            `json:"identity_show"`
+	IdentityType    string         `json:"identity_type"`
+	IdentityInfo    interface{}    `json:"identity_info"`
+	ExclusiveIdId   int16          `json:"exclusive_id_id"`
+	ExclusiveIdInfo interface{}    `json:"exclusive_id_info"`
+	Mention         string         `json:"mention"`
+	Mailbox         int16          `json:"mailbox"`
+	ImageSize       string         `json:"image_size"`
+	HasRewardGood   int            `json:"has_reward_good"`
+	IsGodHole       int            `json:"is_god_hole"`
+	IsProtect       int            `json:"is_protect"`
+	TreadNum        int16          `json:"tread_num"`
+	PraiseNum       int16          `json:"praise_num"`
+	PraiseNumShow   int16          `json:"praise_num_show"`
+	FoldNum         int16          `json:"fold_num"`
+	IsFold          int            `json:"is_fold"`
+	CannotReply     int            `json:"cannot_reply"`
+	IsFollow        int            `json:"is_follow"`
+	IsPraise        int            `json:"is_praise"`
+	CommentList     []commentDTO   `json:"comment_list"`
 }
 
 func (dto postDTO) toModel() models.Post {
@@ -867,7 +871,7 @@ func (dto postDTO) toModel() models.Post {
 		Extra:           dto.Extra,
 		Anonymous:       models.BoolFromInt(dto.Anonymous),
 		Protected:       dto.Protected,
-		IsTop:           models.BoolFromInt(dto.IsTop),
+		IsTop:           dto.IsTop,
 		Label:           dto.Label,
 		Status:          dto.Status,
 		IsComment:       models.BoolFromInt(dto.IsComment),

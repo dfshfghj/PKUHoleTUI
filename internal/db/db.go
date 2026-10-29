@@ -279,7 +279,7 @@ func upsertPosts(tx *gorm.DB, posts []models.Post) error {
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "pid"}},
 		UpdateAll: true,
-	}).CreateInBatches(posts, 100).Error
+	}).Omit(clause.Associations).CreateInBatches(posts, 100).Error
 }
 
 func (d *Database) SaveCrawlResult(posts []models.Post, comments []models.Comment) error {
@@ -291,6 +291,63 @@ func (d *Database) SaveCrawlResult(posts []models.Post, comments []models.Commen
 		}
 		return upsertComments(tx, comments)
 	})
+}
+
+// SaveCrawlSnapshot saves complete comment snapshots for the supplied posts.
+// Callers must finish every comment page before using this method; partial crawls
+// must continue using SaveCrawlResult.
+func (d *Database) SaveCrawlSnapshot(posts []models.Post, comments []models.Comment, missingPostPIDs []int32) error {
+	sanitizePosts(posts)
+	sanitizeComments(comments)
+	for i := range posts {
+		posts[i].DeletedAt = 0
+	}
+	for i := range comments {
+		comments[i].DeletedAt = 0
+	}
+	deletedAt := time.Now().Unix()
+	return d.db.Transaction(func(tx *gorm.DB) error {
+		// Mark first, then restore observed comments with the upsert below. This
+		// avoids an unbounded NOT IN list for posts with many comment pages.
+		// Existing markers keep their first detection time.
+		for _, post := range posts {
+			if err := tx.Model(&models.Comment{}).Where("pid = ? AND deleted_at = 0", post.Pid).Update("deleted_at", deletedAt).Error; err != nil {
+				return err
+			}
+		}
+		for _, pid := range missingPostPIDs {
+			if err := tx.Model(&models.Post{}).Where("pid = ? AND deleted_at = 0", pid).Update("deleted_at", deletedAt).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.Comment{}).Where("pid = ? AND deleted_at = 0", pid).Update("deleted_at", deletedAt).Error; err != nil {
+				return err
+			}
+		}
+		if err := upsertPosts(tx, posts); err != nil {
+			return err
+		}
+		return upsertComments(tx, comments)
+	})
+}
+
+// FindMissingPostPIDs compares a fully observed PID range against stored live
+// posts. IDs that were never stored are deliberately excluded.
+func (d *Database) FindMissingPostPIDs(minPID, maxPID int32, observed []int32) ([]int32, error) {
+	var stored []int32
+	if err := d.db.Model(&models.Post{}).Where("pid >= ? AND pid <= ? AND deleted_at = 0", minPID, maxPID).Order("pid").Pluck("pid", &stored).Error; err != nil {
+		return nil, err
+	}
+	seen := make(map[int32]struct{}, len(observed))
+	for _, pid := range observed {
+		seen[pid] = struct{}{}
+	}
+	var missing []int32
+	for _, pid := range stored {
+		if _, ok := seen[pid]; !ok {
+			missing = append(missing, pid)
+		}
+	}
+	return missing, nil
 }
 
 func (d *Database) UpsertComments(comments []models.Comment) error {
@@ -339,7 +396,7 @@ func upsertComments(tx *gorm.DB, comments []models.Comment) error {
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "cid"}},
 		UpdateAll: true,
-	}).CreateInBatches(comments, 100).Error
+	}).Omit(clause.Associations).CreateInBatches(comments, 100).Error
 }
 
 func (d *Database) UpsertExclusiveIdInfo(info models.ExclusiveIdInfo) error {
@@ -379,7 +436,7 @@ func (d *Database) GetCommentCount() (int, error) {
 
 func (d *Database) GetPostByPid(pid int32) (*models.Post, error) {
 	var post models.Post
-	err := d.db.Raw("SELECT pid, text, anonymous, type, extra, timestamp, reply, likenum, status, is_comment, is_protect, is_top, label, media_ids, praise_num FROM posts WHERE pid = ?", pid).First(&post).Error
+	err := d.db.Raw("SELECT "+postListColumns+" FROM posts WHERE pid = ?", pid).First(&post).Error
 	if err != nil {
 		return nil, err
 	}

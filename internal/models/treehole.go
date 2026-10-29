@@ -3,6 +3,7 @@ package models
 import (
 	"database/sql/driver"
 	"strconv"
+	"strings"
 )
 
 // BoolInt 数据库存储为 int(0/1)，Go 中使用 bool，JSON 序列化保持 0/1 兼容
@@ -34,11 +35,20 @@ func (b BoolInt) MarshalJSON() ([]byte, error) {
 }
 
 func (b *BoolInt) UnmarshalJSON(data []byte) error {
-	s, err := strconv.ParseInt(string(data), 10, 64)
+	// 上游 API 可能把 0/1 序列化成数字或字符串（如 "is_top": "0"），两种都要兼容
+	s := strings.TrimSpace(string(data))
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	}
+	if s == "" || s == "null" {
+		*b = false
+		return nil
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return err
 	}
-	*b = s != 0
+	*b = v != 0
 	return nil
 }
 
@@ -47,6 +57,8 @@ func BoolFromInt(i int) BoolInt {
 }
 
 type Post struct {
+	// DeletedAt 是发现删除的时间（Unix 秒）；0 表示当前存活。
+	DeletedAt       int64     `json:"deleted_at" gorm:"column:deleted_at;default:0"`
 	Pid             int32     `json:"pid" gorm:"primaryKey;column:pid"`
 	Text            string    `json:"text" gorm:"column:text"`
 	TextSearch      string    `json:"-" gorm:"column:text_search"`
@@ -106,6 +118,8 @@ type ExclusiveIdInfo struct {
 }
 
 type Comment struct {
+	// DeletedAt 是发现删除的时间（Unix 秒）；0 表示当前存活。
+	DeletedAt       int64    `json:"deleted_at" gorm:"column:deleted_at;default:0"`
 	Anonymous       BoolInt  `json:"anonymous" gorm:"column:anonymous"`
 	Cid             int32    `json:"cid" gorm:"primaryKey;column:cid;index:idx_comments_pid_cid,priority:2"`
 	Pid             int32    `json:"pid" gorm:"column:pid;index:idx_comments_pid_cid,priority:1"`
@@ -119,7 +133,7 @@ type Comment struct {
 	NameTag         string   `json:"name_tag" gorm:"column:name_tag"`
 	RewardGood      int16    `json:"reward_good" gorm:"column:reward_good"`
 	Text            string   `json:"text" gorm:"column:text"`
-	Timestamp       int32    `json:"timestamp" gorm:"column:timestamp"`
+	Timestamp       int32    `json:"timestamp" gorm:"column:timestamp;index:idx_comments_timestamp"`
 	QuoteID         *int32   `json:"-" gorm:"column:quote_id;index:idx_comments_quote_id;constraint:OnDelete:SET NULL;"`
 	Quote           *Comment `json:"quote,omitempty" gorm:"foreignKey:QuoteID"`
 	MediaIds        string   `json:"media_ids" gorm:"column:media_ids"`

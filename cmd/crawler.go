@@ -17,16 +17,17 @@ func newCrawlerCmd() *cobra.Command {
 	}
 
 	cmd.Flags().IntVar(&startPage, "start-page", 1, "first page to crawl")
-	cmd.Flags().IntVar(&pagesPerRound, "pages", 0, "number of pages to crawl per round; 0 means unlimited")
+	cmd.Flags().IntVar(&pagesPerRound, "pages", 0, "number of pages to crawl per round; 0 means until the first empty page")
 	cmd.Flags().BoolVar(&loopCrawl, "loop", false, "continuously repeat crawl rounds")
 	cmd.Flags().IntVar(&loopDelay, "loop-delay", 60, "seconds between crawl rounds")
 	cmd.Flags().IntVar(&pageDelay, "page-delay", 1, "seconds between page requests")
 	cmd.Flags().BoolVar(&resume, "resume", false, "resume from saved crawl state")
 	cmd.Flags().BoolVar(&saveRawJSON, "save-raw-json", false, "save raw API responses as JSON files")
 	cmd.Flags().IntVar(&postBatchSize, "post-batch-size", 200, "posts requested per API call")
-	cmd.Flags().IntVar(&commentLimit, "comment-limit", 200, "max comments to fetch per post")
+	cmd.Flags().IntVar(&commentLimit, "comment-limit", 200, "comments embedded per post in the post list; remaining pages are fetched until reply is reached")
 	cmd.Flags().BoolVar(&fetchImages, "fetch-images", false, "download images from image posts")
 	cmd.Flags().BoolVar(&convertWebp, "convert-webp", true, "convert downloaded images to WebP format")
+	cmd.Flags().StringVar(&deletedJSONPath, "deleted-json", "", "merge deleted-post gaps into this JSON file while crawling (daily one-off run recommended)")
 
 	cmd.AddCommand(newFetchImagesCmd())
 	cmd.AddCommand(newFetchThumbnailsCmd())

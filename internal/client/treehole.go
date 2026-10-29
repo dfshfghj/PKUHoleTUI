@@ -548,6 +548,16 @@ func (c *Client) GetCommentsByPid(pid, page, limit, sort, commentStream int) (*h
 	return c.httpClient.Do(req)
 }
 
+// WithTimeout shares transport, cookies and credentials while giving a request
+// its own timeout policy. It does not mutate the original client.
+func (c *Client) WithTimeout(timeout time.Duration) *Client {
+	copyClient := *c
+	copyHTTP := *c.httpClient
+	copyHTTP.Timeout = timeout
+	copyClient.httpClient = &copyHTTP
+	return &copyClient
+}
+
 func (c *Client) GetHttpClient() *http.Client {
 	return c.httpClient
 }

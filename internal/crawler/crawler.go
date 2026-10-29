@@ -44,21 +44,31 @@ type APIResponse struct {
 type FetchResult struct {
 	PostCount    int
 	CommentCount int
+	Posts        []models.Post
 }
 
 // FetchAndSave fetches one page of posts and saves them to the database
 func FetchAndSave(c *client.Client, database *db.Database, page int, saveJSON bool, postLimit int, commentLimit int, fetchImages bool, convertWebp bool) (FetchResult, error) {
+	return fetchAndSave(c, database, page, saveJSON, postLimit, commentLimit, fetchImages, convertWebp, nil)
+}
+
+func fetchAndSave(c *client.Client, database *db.Database, page int, saveJSON bool, postLimit int, commentLimit int, fetchImages bool, convertWebp bool, previousPagePosts []models.Post) (FetchResult, error) {
 	var result FetchResult
 
-	posts, comments, rawResponse, err := fetchPostsV3(c, page, postLimit, commentLimit, fetchImages, convertWebp)
+	posts, comments, rawResponse, err := fetchPostsV3WithHistory(c, database, page, postLimit, commentLimit, fetchImages, convertWebp, previousPagePosts)
 	if err != nil {
 		return result, err
 	}
 
 	result.PostCount = len(posts)
 	result.CommentCount = len(comments)
+	result.Posts = posts
 
-	if err := database.SaveCrawlResult(posts, comments); err != nil {
+	missing, err := missingPostsInPage(database, posts, previousPagePosts)
+	if err != nil {
+		return result, err
+	}
+	if err := database.SaveCrawlSnapshot(posts, comments, missing); err != nil {
 		return result, fmt.Errorf("写入抓取结果失败: %w", err)
 	}
 
@@ -113,46 +123,46 @@ func SaveRawResponsesToFile() error {
 
 // TempPost 用于匹配API响应的临时帖子结构体
 type TempPost struct {
-	Pid             int32         `json:"pid"`
-	Text            string        `json:"text"`
-	Type            string        `json:"type"`
-	Timestamp       int32         `json:"timestamp"`
-	Hidden          int           `json:"hidden"`
-	Reply           int32         `json:"reply"`
-	Likenum         int16         `json:"likenum"`
-	Extra           int32         `json:"extra"`
-	Anonymous       int           `json:"anonymous"`
-	Protected       int16         `json:"protected"`
-	IsTop           int           `json:"is_top"`
-	Label           int32         `json:"label"`
-	Status          int16         `json:"status"`
-	IsComment       int           `json:"is_comment"`
-	TagsIds         string        `json:"tags_ids"`
-	AutoTagsIds     string        `json:"auto_tags_ids"`
-	MgrTagsIds      string        `json:"mgr_tags_ids"`
-	MediaIds        string        `json:"media_ids"`
-	Fold            int16         `json:"fold"`
-	Kind            int16         `json:"kind"`
-	RewardCost      int16         `json:"reward_cost"`
-	RewardState     int16         `json:"reward_state"`
-	IdentityShow    int           `json:"identity_show"`
-	IdentityType    string        `json:"identity_type"`
-	IdentityInfo    interface{}   `json:"identity_info"`
-	ExclusiveIdId   int16         `json:"exclusive_id_id"`
-	ExclusiveIdInfo interface{}   `json:"exclusive_id_info"`
-	Mention         string        `json:"mention"`
-	Mailbox         int16         `json:"mailbox"`
-	ImageSize       string        `json:"image_size"`
-	HasRewardGood   int           `json:"has_reward_good"`
-	IsGodHole       int           `json:"is_god_hole"`
-	IsProtect       int           `json:"is_protect"`
-	TreadNum        int16         `json:"tread_num"`
-	PraiseNum       int16         `json:"praise_num"`
-	PraiseNumShow   int16         `json:"praise_num_show"`
-	FoldNum         int16         `json:"fold_num"`
-	IsFold          int           `json:"is_fold"`
-	CannotReply     int           `json:"cannot_reply"`
-	CommentList     []TempComment `json:"comment_list"`
+	Pid             int32          `json:"pid"`
+	Text            string         `json:"text"`
+	Type            string         `json:"type"`
+	Timestamp       int32          `json:"timestamp"`
+	Hidden          int            `json:"hidden"`
+	Reply           int32          `json:"reply"`
+	Likenum         int16          `json:"likenum"`
+	Extra           int32          `json:"extra"`
+	Anonymous       int            `json:"anonymous"`
+	Protected       int16          `json:"protected"`
+	IsTop           models.BoolInt `json:"is_top"`
+	Label           int32          `json:"label"`
+	Status          int16          `json:"status"`
+	IsComment       int            `json:"is_comment"`
+	TagsIds         string         `json:"tags_ids"`
+	AutoTagsIds     string         `json:"auto_tags_ids"`
+	MgrTagsIds      string         `json:"mgr_tags_ids"`
+	MediaIds        string         `json:"media_ids"`
+	Fold            int16          `json:"fold"`
+	Kind            int16          `json:"kind"`
+	RewardCost      int16          `json:"reward_cost"`
+	RewardState     int16          `json:"reward_state"`
+	IdentityShow    int            `json:"identity_show"`
+	IdentityType    string         `json:"identity_type"`
+	IdentityInfo    interface{}    `json:"identity_info"`
+	ExclusiveIdId   int16          `json:"exclusive_id_id"`
+	ExclusiveIdInfo interface{}    `json:"exclusive_id_info"`
+	Mention         string         `json:"mention"`
+	Mailbox         int16          `json:"mailbox"`
+	ImageSize       string         `json:"image_size"`
+	HasRewardGood   int            `json:"has_reward_good"`
+	IsGodHole       int            `json:"is_god_hole"`
+	IsProtect       int            `json:"is_protect"`
+	TreadNum        int16          `json:"tread_num"`
+	PraiseNum       int16          `json:"praise_num"`
+	PraiseNumShow   int16          `json:"praise_num_show"`
+	FoldNum         int16          `json:"fold_num"`
+	IsFold          int            `json:"is_fold"`
+	CannotReply     int            `json:"cannot_reply"`
+	CommentList     []TempComment  `json:"comment_list"`
 }
 
 // TempComment 用于匹配API响应的临时评论结构体
@@ -176,39 +186,51 @@ type TempComment struct {
 	ExclusiveIdInfo interface{} `json:"exclusive_id_info"`
 }
 
+func convertTempComments(items []TempComment) []models.Comment {
+	comments := make([]models.Comment, 0, len(items))
+	for _, temp := range items {
+		var quoteID *int32
+		if temp.Quote != nil {
+			if quoteMap, ok := temp.Quote.(map[string]interface{}); ok {
+				if cidVal, ok := quoteMap["cid"].(float64); ok {
+					qid := int32(cidVal)
+					quoteID = &qid
+				}
+			}
+		}
+		comment := models.Comment{
+			Anonymous:     models.BoolFromInt(temp.Anonymous),
+			Cid:           temp.Cid,
+			Pid:           temp.Pid,
+			ExclusiveIdId: temp.ExclusiveIdId,
+			Hidden:        models.BoolFromInt(temp.Hidden),
+			IdentityShow:  models.BoolFromInt(temp.IdentityShow),
+			IdentityType:  temp.IdentityType,
+			IsLz:          models.BoolFromInt(temp.IsLz),
+			Mention:       temp.Mention,
+			NameTag:       temp.NameTag,
+			RewardGood:    temp.RewardGood,
+			Text:          temp.Text,
+			Timestamp:     temp.Timestamp,
+			QuoteID:       quoteID,
+			MediaIds:      temp.MediaIds,
+		}
+		comment.IdentityInfo = getJSONStringFromInterface(temp.IdentityInfo)
+		comment.ExclusiveIdInfo = getJSONStringFromInterface(temp.ExclusiveIdInfo)
+		comments = append(comments, comment)
+	}
+	return comments
+}
+
 func fetchPostsV3(c *client.Client, page int, postLimit int, commentLimit int, fetchImages bool, convertWebp bool) ([]models.Post, []models.Comment, map[string]interface{}, error) {
+	return fetchPostsV3WithHistory(c, nil, page, postLimit, commentLimit, fetchImages, convertWebp, nil)
+}
+
+func fetchPostsV3WithHistory(c *client.Client, database *db.Database, page int, postLimit int, commentLimit int, fetchImages bool, convertWebp bool, previous []models.Post) ([]models.Post, []models.Comment, map[string]interface{}, error) {
 	log.Printf("[Crawler] 正在请求 API: page=%d, postLimit=%d, commentLimit=%d", page, postLimit, commentLimit)
-	resp, err := c.GetPostsList(page, postLimit, commentLimit, 1)
+	rawResponse, err := fetchPostListRecovering(c, database, page, postLimit, commentLimit, previous)
 	if err != nil {
-		log.Printf("[Crawler] API 请求失败: %v", err)
 		return nil, nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		log.Printf("[Crawler] API 返回非200状态码: %d", resp.StatusCode)
-		return nil, nil, nil, fmt.Errorf("get posts failed with status: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("[Crawler] 读取响应体失败: %v", err)
-		return nil, nil, nil, err
-	}
-
-	// 解析原始响应用于JSON保存
-	var rawResponse map[string]interface{}
-	if err := json.Unmarshal(body, &rawResponse); err != nil {
-		log.Printf("[Crawler] 解析原始响应失败: %v", err)
-		return nil, nil, nil, err
-	}
-
-	// 检查API状态
-	code, ok := rawResponse["code"].(float64)
-	if !ok || code != 20000 {
-		message, _ := rawResponse["message"].(string)
-		log.Printf("[Crawler] API 业务错误: code=%v, message=%s", code, message)
-		return nil, nil, nil, fmt.Errorf("API error: %s", message)
 	}
 
 	data, ok := rawResponse["data"].(map[string]interface{})
@@ -252,7 +274,7 @@ func fetchPostsV3(c *client.Client, page int, postLimit int, commentLimit int, f
 			Extra:         tempPost.Extra,
 			Anonymous:     models.BoolFromInt(tempPost.Anonymous),
 			Protected:     tempPost.Protected,
-			IsTop:         models.BoolFromInt(tempPost.IsTop),
+			IsTop:         tempPost.IsTop,
 			Label:         tempPost.Label,
 			Status:        tempPost.Status,
 			IsComment:     models.BoolFromInt(tempPost.IsComment),
@@ -285,58 +307,36 @@ func fetchPostsV3(c *client.Client, page int, postLimit int, commentLimit int, f
 		post.IdentityInfo = getJSONStringFromInterface(tempPost.IdentityInfo)
 		post.ExclusiveIdInfo = getJSONStringFromInterface(tempPost.ExclusiveIdInfo)
 
-		// 处理评论
-		var processedComments []models.Comment
-		for _, tempComment := range tempPost.CommentList {
-			// 提取引用评论ID
-			var quoteID *int32
-			if tempComment.Quote != nil {
-				if quoteMap, ok := tempComment.Quote.(map[string]interface{}); ok {
-					if cidVal, ok := quoteMap["cid"].(float64); ok {
-						qid := int32(cidVal)
-						quoteID = &qid
-					}
-				}
+		// The post list already embeds the first comment_limit comments
+		// (ascending by cid). Reply can undercount, so a capped embedded list
+		// is paged to the end regardless of reply.
+		post.Comments = convertTempComments(tempPost.CommentList)
+		capped := commentLimit > 0 && len(post.Comments) >= commentLimit
+		if capped || len(post.Comments) < int(tempPost.Reply) {
+			target := int(tempPost.Reply)
+			if capped {
+				target = 0
 			}
-
-			comment := models.Comment{
-				Anonymous:     models.BoolFromInt(tempComment.Anonymous),
-				Cid:           tempComment.Cid,
-				Pid:           tempComment.Pid,
-				ExclusiveIdId: tempComment.ExclusiveIdId,
-				Hidden:        models.BoolFromInt(tempComment.Hidden),
-				IdentityShow:  models.BoolFromInt(tempComment.IdentityShow),
-				IdentityType:  tempComment.IdentityType,
-				IsLz:          models.BoolFromInt(tempComment.IsLz),
-				Mention:       tempComment.Mention,
-				NameTag:       tempComment.NameTag,
-				RewardGood:    tempComment.RewardGood,
-				Text:          tempComment.Text,
-				Timestamp:     tempComment.Timestamp,
-				QuoteID:       quoteID,
-				MediaIds:      tempComment.MediaIds,
+			post.Comments, err = fetchCommentsFrom(c, post.Pid, post.Comments, target, commentLimit)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("抓取帖子 %d 的评论失败: %w", post.Pid, err)
 			}
-
-			// 处理评论的特殊字段
-			comment.IdentityInfo = getJSONStringFromInterface(tempComment.IdentityInfo)
-			comment.ExclusiveIdInfo = getJSONStringFromInterface(tempComment.ExclusiveIdInfo)
-
-			processedComments = append(processedComments, comment)
-			comments = append(comments, comment)
 		}
+		comments = append(comments, post.Comments...)
 
-		post.Comments = processedComments
 		posts = append(posts, post)
 	}
 
+	// Keep the original list response and include the complete fetched comments.
+	rawResponse["fetched_comments"] = comments
 	if fetchImages {
-		for _, tempPost := range tempPosts {
-			if tempPost.Type == "image" || tempPost.MediaIds != "" {
-				downloadImages(c, tempPost.MediaIds, tempPost.Pid, convertWebp)
+		for _, post := range posts {
+			if post.Type == "image" || post.MediaIds != "" {
+				downloadImages(c, post.MediaIds, post.Pid, convertWebp)
 			}
-			for _, tempComment := range tempPost.CommentList {
-				if tempComment.MediaIds != "" {
-					downloadImages(c, tempComment.MediaIds, 0, convertWebp)
+			for _, comment := range post.Comments {
+				if comment.MediaIds != "" {
+					downloadImages(c, comment.MediaIds, 0, convertWebp)
 				}
 			}
 		}

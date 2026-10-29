@@ -99,6 +99,10 @@ func TestBoolIntUnmarshalJSON(t *testing.T) {
 	}{
 		{"zero", "0", false, false},
 		{"one", "1", true, false},
+		{"quoted zero", `"0"`, false, false},
+		{"quoted one", `"1"`, true, false},
+		{"empty string", `""`, false, false},
+		{"null", "null", false, false},
 		{"non-zero", "42", true, false},
 		{"negative", "-1", true, false},
 		{"invalid", "abc", false, true},
