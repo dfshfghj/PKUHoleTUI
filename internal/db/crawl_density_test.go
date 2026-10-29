@@ -17,7 +17,12 @@ func TestPostPIDSampleIncludesDeletedEndpoints(t *testing.T) {
 	if err != nil || sample != (PIDSample{MinPID: 10, MaxPID: 20, LivePosts: 2}) {
 		t.Fatalf("sample=%+v err=%v", sample, err)
 	}
+	// The window around 21 still includes the nearby posts.
 	sample, err = d.GetPostPIDSample(21, 29)
+	if err != nil || sample != (PIDSample{MinPID: 10, MaxPID: 20, LivePosts: 2}) {
+		t.Fatalf("nearby sample=%+v err=%v", sample, err)
+	}
+	sample, err = d.GetPostPIDSample(100000, 200000)
 	if err != nil || sample != (PIDSample{}) {
 		t.Fatalf("empty sample=%+v err=%v", sample, err)
 	}

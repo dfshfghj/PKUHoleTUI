@@ -2,6 +2,8 @@ package crawler
 
 import (
 	"fmt"
+	"log"
+	"math"
 
 	"treehole/internal/client"
 	"treehole/internal/db"
@@ -44,6 +46,8 @@ func EstimatePostPage(targetPID, latestPID int32, limit int, sample db.PIDSample
 // LocatePostPage finds the target or its insertion page in the descending live
 // PID stream. A deleted target between pages belongs to the older page; callers
 // covering an interval should include its preceding page to overlap that gap.
+// It projects pages from the observed PID span (Newton step) and refines with
+// a secant line, so a good estimate usually converges in a few probes.
 // Requests are bounded and errors return directly, without retry loops.
 func LocatePostPage(c *client.Client, database *db.Database, targetPID, latestPID int32, limit int) (int, error) {
 	sample := db.PIDSample{}
@@ -69,6 +73,31 @@ func locatePostPage(targetPID, latestPID int32, limit int, sample db.PIDSample, 
 	// no database sample exists. The additional page is the empty sentinel.
 	lo, hi := 1, int((int64(latestPID)-1)/int64(limit))+2
 	page := estimate.Page
+	if page < lo {
+		page = lo
+	}
+	if page > hi {
+		page = hi
+	}
+
+	type anchor struct {
+		page int
+		pid  int32
+	}
+	var previous anchor
+	havePrevious := false
+	firstEmpty := 0
+
+	insertion := func() int {
+		if firstEmpty > 1 && lo >= firstEmpty {
+			return firstEmpty - 1
+		}
+		if lo < 1 {
+			return 1
+		}
+		return lo
+	}
+
 	for probes := 0; probes < 24; probes++ {
 		posts, err := probe(page, limit)
 		if err != nil {
@@ -87,24 +116,73 @@ func locatePostPage(targetPID, latestPID int32, limit int, sample db.PIDSample, 
 			}
 			oldest = post.Pid
 		}
-		if newest > 0 && targetPID >= oldest && targetPID <= newest {
+		if newest == 0 {
+			if len(posts) > 0 {
+				return 0, fmt.Errorf("locate PID: page %d contains only pinned posts", page)
+			}
+			log.Printf("[Locator] target PID %d: page=%d empty", targetPID, page)
+			// Empty pages are past the end of the list.
+			if firstEmpty == 0 || page < firstEmpty {
+				firstEmpty = page
+			}
+			hi = page - 1
+			if lo > hi {
+				return insertion(), nil
+			}
+			page = lo + (hi-lo)/2
+			continue
+		}
+		log.Printf("[Locator] target PID %d: page=%d -> PID=%d-%d", targetPID, page, oldest, newest)
+		if targetPID >= oldest && targetPID <= newest {
 			return page, nil
 		}
-		if newest == 0 && len(posts) > 0 {
-			return 0, fmt.Errorf("locate PID: page %d contains only pinned posts", page)
-		}
-		if newest == 0 || oldest <= targetPID {
-			hi = page
+
+		current := anchor{page: page, pid: oldest}
+		if targetPID > newest {
+			hi = page - 1
 		} else {
 			lo = page + 1
 		}
-		if lo >= hi {
-			if newest == 0 && page == lo && page > 1 {
-				return page - 1, nil
-			}
-			return lo, nil
+		if lo > hi {
+			return insertion(), nil
 		}
-		page = lo + (hi-lo)/2
+
+		next := 0
+		if havePrevious && previous.page != current.page && previous.pid != current.pid {
+			// Secant through (pid, page): pages descend as PIDs grow.
+			y := float64(current.page) + float64(int64(targetPID)-int64(current.pid))*
+				float64(current.page-previous.page)/float64(int64(current.pid)-int64(previous.pid))
+			next = int(math.Round(y))
+		} else {
+			// Newton step from the PID span this page covers.
+			span := int64(newest) - int64(oldest)
+			if span < 1 {
+				span = 1
+			}
+			if targetPID > newest {
+				step := int((int64(targetPID) - int64(newest) + span - 1) / span)
+				next = page - step
+			} else {
+				step := int((int64(oldest) - int64(targetPID) + span - 1) / span)
+				next = page + step
+			}
+		}
+		if next < lo {
+			next = lo
+		}
+		if next > hi {
+			next = hi
+		}
+		if next == page {
+			if lo < hi {
+				next = lo + (hi-lo)/2
+			}
+			if next == page {
+				return insertion(), nil
+			}
+		}
+		previous, havePrevious = current, true
+		page = next
 	}
 	return 0, fmt.Errorf("locate PID %d exceeded 24 probes", targetPID)
 }
